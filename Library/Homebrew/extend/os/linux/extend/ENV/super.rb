@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 module Superenv
   # @private
   def self.bin
@@ -7,6 +9,7 @@ module Superenv
   # @private
   def setup_build_environment(formula = nil)
     generic_setup_build_environment(formula)
+    self["HOMEBREW_OPTIMIZATION_LEVEL"] = "O2"
     self["HOMEBREW_DYNAMIC_LINKER"] = determine_dynamic_linker_path
     self["HOMEBREW_RPATH_PATHS"] = determine_rpath_paths(formula)
   end
@@ -14,12 +17,10 @@ module Superenv
   def homebrew_extra_paths
     paths = []
     paths += %w[binutils make].map do |f|
-      begin
-        bin = Formula[f].opt_bin
-        bin if bin.directory?
-      rescue FormulaUnavailableError
-        nil
-      end
+      bin = Formula[f].opt_bin
+      bin if bin.directory?
+    rescue FormulaUnavailableError
+      nil
     end.compact
     paths
   end
@@ -35,6 +36,7 @@ module Superenv
   def determine_dynamic_linker_path
     path = "#{HOMEBREW_PREFIX}/lib/ld.so"
     return unless File.readable? path
+
     path
   end
 end

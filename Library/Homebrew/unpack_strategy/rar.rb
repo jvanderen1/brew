@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 module UnpackStrategy
   class Rar
     include UnpackStrategy
@@ -20,8 +22,8 @@ module UnpackStrategy
 
     def extract_to_dir(unpack_dir, basename:, verbose:)
       system_command! "unrar",
-                      args: ["x", "-inul", path, unpack_dir],
-                      env: { "PATH" => PATH.new(Formula["unrar"].opt_bin, ENV["PATH"]) },
+                      args:    ["x", "-inul", path, unpack_dir],
+                      env:     { "PATH" => PATH.new(Formula["unrar"].opt_bin, ENV["PATH"]) },
                       verbose: verbose
     end
   end

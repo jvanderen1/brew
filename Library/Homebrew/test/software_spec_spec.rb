@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require "software_spec"
 
 describe SoftwareSpec do
@@ -130,6 +132,30 @@ describe SoftwareSpec do
     end
   end
 
+  describe "#uses_from_macos" do
+    it "allows specifying dependencies", :needs_linux do
+      subject.uses_from_macos("foo")
+
+      expect(subject.deps.first.name).to eq("foo")
+    end
+
+    it "works with tags", :needs_linux do
+      subject.uses_from_macos("foo" => :build)
+
+      expect(subject.deps.first.name).to eq("foo")
+      expect(subject.deps.first.tags).to include(:build)
+    end
+
+    it "ignores OS version specifications", :needs_linux do
+      subject.uses_from_macos("foo")
+      subject.uses_from_macos("bar" => :build)
+
+      expect(subject.deps.first.name).to eq("foo")
+      expect(subject.deps.last.name).to eq("bar")
+      expect(subject.deps.last.tags).to include(:build)
+    end
+  end
+
   specify "explicit options override defaupt depends_on option description" do
     subject.option("with-foo", "blah")
     subject.depends_on("foo" => :optional)
@@ -159,9 +185,9 @@ describe BottleSpecification do
   specify "#sha256" do
     checksums = {
       snow_leopard_32: "deadbeef" * 8,
-      snow_leopard: "faceb00c" * 8,
-      lion: "baadf00d" * 8,
-      mountain_lion: "8badf00d" * 8,
+      snow_leopard:    "faceb00c" * 8,
+      lion:            "baadf00d" * 8,
+      mountain_lion:   "8badf00d" * 8,
     }
 
     checksums.each_pair do |cat, digest|

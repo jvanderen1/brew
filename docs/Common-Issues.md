@@ -4,7 +4,6 @@ This is a list of commonly encountered problems, known issues, and their solutio
 
 ### `brew` complains about absence of "Command Line Tools"
 You need to have the Xcode Command Line Utilities installed (and updated): run `xcode-select --install` in the terminal.
-(In OS X prior to 10.9, the "Command Line Tools" package can alternatively be installed from within Xcode. `⌘,` will get you to preferences. Visit the "Downloads" tab and hit the install button next to "Command Line Tools".)
 
 ### Ruby: `bad interpreter: /usr/bin/ruby^M: no such file or directory`
 You cloned with `git`, and your Git configuration is set to use Windows line endings. See this page: <https://help.github.com/articles/dealing-with-line-endings>
@@ -29,28 +28,6 @@ cd $(brew --repository)/Library
 git clean -fd
 ```
 
-### Ruby: `invalid multibyte escape: /^\037\213/`
-
-You see an error similar to:
-
-```
-Error: /usr/local/Library/Homebrew/download_strategy.rb:84: invalid multibyte escape: /^\037\213/
-invalid multibyte escape: /^\037\235/
-```
-
-In the past, Homebrew assumed that `/usr/bin/ruby` was Ruby 1.8. On OS X 10.9, it is now Ruby 2.0. There are various incompatibilities between the two versions, so if you upgrade to OS X 10.9 while using a sufficiently old version of Homebrew, you will encounter errors.
-
-The incompatibilities have been addressed in more recent versions of Homebrew, and instead of making assumptions about `/usr/bin/ruby`, it uses the executable inside macOS's Ruby framework or a vendored Ruby.
-
-To recover from this situation, do the following:
-
-```sh
-cd $(brew --prefix)
-git fetch origin
-git reset --hard FETCH_HEAD
-brew update
-```
-
 ### `launchctl` refuses to load launchd plist files
 When trying to load a plist file into launchctl, you receive an error that resembles
 
@@ -70,7 +47,7 @@ These are likely due to one of four issues:
 
 1. You are using iTerm. The solution is to use Terminal.app when interacting with `launchctl`.
 2. You are using a terminal multiplexer such as `tmux` or `screen`. You should interact with `launchctl` from a separate Terminal.app shell.
-3. You are attempting to run `launchctl` while logged in remotely.  You should enable screen sharing on the remote machine and issue the command using Terminal.app running on that machine.
+3. You are attempting to run `launchctl` while logged in remotely. You should enable screen sharing on the remote machine and issue the command using Terminal.app running on that machine.
 4. You are `su`'ed as a different user.
 
 ### `brew upgrade` errors out
@@ -99,7 +76,7 @@ git clean -n # if this doesn't list anything that you want to keep, then
 git clean -f # this will remove untracked files
 ```
 
-### Python: easy-install.pth cannot be linked
+### Python: `easy-install.pth` cannot be linked
 
 ```
 Warning: Could not link <formula>. Unlinking...

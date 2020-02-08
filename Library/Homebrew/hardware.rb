@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 module Hardware
   class CPU
     INTEL_32BIT_ARCHS = [:i386].freeze
@@ -7,11 +9,12 @@ module Hardware
 
     class << self
       OPTIMIZATION_FLAGS = {
-        core2: "-march=core2",
-        core: "-march=prescott",
-        armv6: "-march=armv6",
-        armv8: "-march=armv8-a",
-        dunno: "-march=native",
+        native:  "-march=native",
+        nehalem: "-march=nehalem",
+        core2:   "-march=core2",
+        core:    "-march=prescott",
+        armv6:   "-march=armv6",
+        armv8:   "-march=armv8-a",
       }.freeze
 
       def optimization_flags
@@ -60,7 +63,7 @@ module Hardware
       def type
         case RUBY_PLATFORM
         when /x86_64/, /i\d86/ then :intel
-        when /arm/ then :arm
+        when /arm/, /aarch64/ then :arm
         when /ppc\d+/ then :ppc
         else :dunno
         end
@@ -72,6 +75,7 @@ module Hardware
 
       def cores
         return @cores if @cores
+
         @cores = Utils.popen_read("getconf", "_NPROCESSORS_ONLN").chomp.to_i
         @cores = 1 unless $CHILD_STATUS.success?
         @cores
@@ -115,50 +119,41 @@ module Hardware
       def feature?(name)
         features.include?(name)
       end
+    end
+  end
 
-      def can_run?(arch)
-        if is_32_bit?
-          arch_32_bit == arch
-        elsif intel?
-          (INTEL_32BIT_ARCHS + INTEL_64BIT_ARCHS).include?(arch)
-        elsif ppc?
-          (PPC_32BIT_ARCHS + PPC_64BIT_ARCHS).include?(arch)
+  class << self
+    def cores_as_words
+      case Hardware::CPU.cores
+      when 1 then "single"
+      when 2 then "dual"
+      when 4 then "quad"
+      when 6 then "hexa"
+      when 8 then "octa"
+      when 12 then "dodeca"
+      else
+        Hardware::CPU.cores
+      end
+    end
+
+    def oldest_cpu(_version = nil)
+      if Hardware::CPU.intel?
+        if Hardware::CPU.is_64_bit?
+          :core2
         else
-          false
+          :core
         end
-      end
-    end
-  end
-
-  def self.cores_as_words
-    case Hardware::CPU.cores
-    when 1 then "single"
-    when 2 then "dual"
-    when 4 then "quad"
-    when 6 then "hexa"
-    when 8 then "octa"
-    when 12 then "dodeca"
-    else
-      Hardware::CPU.cores
-    end
-  end
-
-  def self.oldest_cpu
-    if Hardware::CPU.intel?
-      if Hardware::CPU.is_64_bit?
-        :core2
+      elsif Hardware::CPU.arm?
+        if Hardware::CPU.is_64_bit?
+          :armv8
+        else
+          :armv6
+        end
       else
-        :core
+        Hardware::CPU.family
       end
-    elsif Hardware::CPU.arm?
-      if Hardware::CPU.is_64_bit?
-        :armv8
-      else
-        :armv6
-      end
-    else
-      Hardware::CPU.family
     end
+    alias generic_oldest_cpu oldest_cpu
   end
 end
 

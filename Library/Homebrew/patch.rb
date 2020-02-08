@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require "resource"
 require "erb"
 
@@ -84,7 +86,7 @@ class DATAPatch < EmbeddedPatch
   end
 
   def contents
-    data = ""
+    data = +""
     path.open("rb") do |f|
       loop do
         line = f.gets
@@ -94,7 +96,7 @@ class DATAPatch < EmbeddedPatch
         data << line
       end
     end
-    data
+    data.freeze
   end
 end
 
@@ -115,8 +117,8 @@ class ExternalPatch
   attr_reader :resource, :strip
 
   def_delegators :resource,
-    :url, :fetch, :patch_files, :verify_download_integrity, :cached_download,
-    :clear_cache
+                 :url, :fetch, :patch_files, :verify_download_integrity, :cached_download,
+                 :clear_cache
 
   def initialize(strip, &block)
     @strip    = strip
@@ -144,6 +146,7 @@ class ExternalPatch
             the "apply" method was used one or more times in the patch-do block.
           EOS
         end
+
         patch_files << children.first.basename
       end
       dir.cd do
@@ -161,7 +164,7 @@ class ExternalPatch
   end
 end
 
-# Legacy patches have no checksum and are not cached
+# Legacy patches have no checksum and are not cached.
 class LegacyPatch < ExternalPatch
   def initialize(strip, url)
     super(strip)

@@ -1,8 +1,11 @@
+# frozen_string_literal: true
+
 require "requirement"
 
 class X11Requirement < Requirement
   satisfy build_env: false do
     next false unless MacOS::XQuartz.installed?
+
     min_version <= MacOS::XQuartz.version
   end
 

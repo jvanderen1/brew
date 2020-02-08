@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require "exceptions"
 
 describe MultipleVersionsInstalledError do
@@ -16,7 +18,7 @@ describe FormulaValidationError do
   subject { described_class.new("foo", "sha257", "magic") }
 
   its(:to_s) {
-    is_expected.to eq(%q(invalid attribute for formula 'foo': sha257 ("magic")))
+    expect(subject.to_s).to eq(%q(invalid attribute for formula 'foo': sha257 ("magic")))
   }
 end
 
@@ -49,7 +51,7 @@ describe FormulaUnavailableError do
     end
 
     its(:to_s) {
-      is_expected.to eq('No available formula with the name "foo" (dependency of foobar)')
+      expect(subject.to_s).to eq('No available formula with the name "foo" (dependency of foobar)')
     }
   end
 end
@@ -76,7 +78,7 @@ describe FormulaClassUnavailableError do
     let(:list) { [] }
 
     its(:to_s) {
-      is_expected.to match(/Expected to find class Foo, but found no classes\./)
+      expect(subject.to_s).to match(/Expected to find class Foo, but found no classes\./)
     }
   end
 
@@ -84,7 +86,7 @@ describe FormulaClassUnavailableError do
     let(:list) { [mod.const_get(:Bar)] }
 
     its(:to_s) {
-      is_expected.to match(/Expected to find class Foo, but only found: Bar \(not derived from Formula!\)\./)
+      expect(subject.to_s).to match(/Expected to find class Foo, but only found: Bar \(not derived from Formula!\)\./)
     }
   end
 
@@ -176,14 +178,15 @@ describe CurlDownloadStrategyError do
   end
 
   context "download failed" do
-    subject { described_class.new("http://brew.sh") }
+    subject { described_class.new("https://brew.sh") }
 
-    its(:to_s) { is_expected.to eq("Download failed: http://brew.sh") }
+    its(:to_s) { is_expected.to eq("Download failed: https://brew.sh") }
   end
 end
 
 describe ErrorDuringExecution do
   subject { described_class.new(["badprg", "arg1", "arg2"], status: status) }
+
   let(:status) { instance_double(Process::Status, exitstatus: 17) }
 
   its(:to_s) { is_expected.to eq("Failure while executing; `badprg arg1 arg2` exited with 17.") }
@@ -221,4 +224,10 @@ describe BottleFormulaUnavailableError do
   let(:formula) { double(Formula, full_name: "foo") }
 
   its(:to_s) { is_expected.to match(/This bottle does not contain the formula file/) }
+end
+
+describe BuildFlagsError do
+  subject { described_class.new(["-s"]) }
+
+  its(:to_s) { is_expected.to match(/flag:\s+-s\nrequires building tools/) }
 end

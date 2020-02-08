@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require "search"
 
 describe Homebrew::Search do
@@ -28,13 +30,13 @@ describe Homebrew::Search do
       json_response = {
         "items" => [
           {
-            "path" => "Formula/some-formula.rb",
+            "path"       => "Formula/some-formula.rb",
             "repository" => {
               "full_name" => "Homebrew/homebrew-foo",
             },
           },
           {
-            "path" => "Casks/some-cask.rb",
+            "path"       => "Casks/some-cask.rb",
             "repository" => {
               "full_name" => "Homebrew/homebrew-bar",
             },

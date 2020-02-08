@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require "tempfile"
 
 module UnpackStrategy
@@ -5,19 +7,19 @@ module UnpackStrategy
     include UnpackStrategy
 
     module Bom
-      DMG_METADATA = Set.new %w[
-        .background
-        .com.apple.timemachine.donotpresent
-        .com.apple.timemachine.supported
-        .DocumentRevisions-V100
-        .DS_Store
-        .fseventsd
-        .MobileBackups
-        .Spotlight-V100
-        .TemporaryItems
-        .Trashes
-        .VolumeIcon.icns
-      ].freeze
+      DMG_METADATA = Set.new(%w[
+                               .background
+                               .com.apple.timemachine.donotpresent
+                               .com.apple.timemachine.supported
+                               .DocumentRevisions-V100
+                               .DS_Store
+                               .fseventsd
+                               .MobileBackups
+                               .Spotlight-V100
+                               .TemporaryItems
+                               .Trashes
+                               .VolumeIcon.icns
+                             ]).freeze
       private_constant :DMG_METADATA
 
       refine Pathname do
@@ -27,12 +29,14 @@ module UnpackStrategy
 
         # symlinks to system directories (commonly to /Applications)
         def system_dir_symlink?
-          symlink? && MacOS.system_dir?(readlink)
+          symlink? && MacOS.system_dir?(dirname.join(readlink))
         end
 
         def bom
+          # rubocop:disable Style/AsciiComments
           # We need to use `find` here instead of Ruby in order to properly handle
           # file names containing special characters, such as “e” + “´” vs. “é”.
+          # rubocop:enable Style/AsciiComments
           system_command("find", args: [".", "-print0"], chdir: self, print_stderr: false)
             .stdout
             .split("\0")
@@ -56,17 +60,18 @@ module UnpackStrategy
 
         if tries > 1
           system_command! "diskutil",
-                          args: ["eject", path],
+                          args:         ["eject", path],
                           print_stderr: false,
-                          verbose: verbose
+                          verbose:      verbose
         else
           system_command! "diskutil",
-                          args: ["unmount", "force", path],
+                          args:         ["unmount", "force", path],
                           print_stderr: false,
-                          verbose: verbose
+                          verbose:      verbose
         end
       rescue ErrorDuringExecution => e
         raise e if (tries -= 1).zero?
+
         sleep 1
         retry
       end
@@ -82,15 +87,15 @@ module UnpackStrategy
             filelist.close
 
             system_command! "mkbom",
-                            args: ["-s", "-i", filelist.path, "--", bomfile.path],
+                            args:    ["-s", "-i", filelist.path, "--", bomfile.path],
                             verbose: verbose
           end
 
           system_command! "ditto",
-                          args: ["--bom", bomfile.path, "--", path, unpack_dir],
+                          args:    ["--bom", bomfile.path, "--", path, unpack_dir],
                           verbose: verbose
 
-          FileUtils.chmod "u+w", Pathname.glob(unpack_dir/"**/*").reject(&:symlink?)
+          FileUtils.chmod "u+w", Pathname.glob(unpack_dir/"**/*", File::FNM_DOTMATCH).reject(&:symlink?)
         end
       end
     end
@@ -101,18 +106,15 @@ module UnpackStrategy
     end
 
     def self.can_extract?(path)
-      imageinfo = system_command("hdiutil",
-                                 args: ["imageinfo", path],
-                                 print_stderr: false).stdout
-
-      !imageinfo.empty?
+      stdout, _, status = system_command("hdiutil", args: ["imageinfo", "-format", path], print_stderr: false)
+      status.success? && !stdout.empty?
     end
 
     private
 
     def extract_to_dir(unpack_dir, basename:, verbose:)
       mount(verbose: verbose) do |mounts|
-        raise "No mounts found in '#{path}'; perhaps it is a bad disk image?" if mounts.empty?
+        raise "No mounts found in '#{path}'; perhaps this is a bad disk image?" if mounts.empty?
 
         mounts.each do |mount|
           mount.extract(to: unpack_dir, verbose: verbose)
@@ -124,11 +126,16 @@ module UnpackStrategy
       Dir.mktmpdir do |mount_dir|
         mount_dir = Pathname(mount_dir)
 
-        without_eula = system_command "hdiutil",
-                                      args: ["attach", "-plist", "-nobrowse", "-readonly", "-noidme", "-mountrandom", mount_dir, path],
-                                      input: "qn\n",
-                                      print_stderr: false,
-                                      verbose: verbose
+        without_eula = system_command(
+          "hdiutil",
+          args:         [
+            "attach", "-plist", "-nobrowse", "-readonly", "-noidme",
+            "-mountrandom", mount_dir, path
+          ],
+          input:        "qn\n",
+          print_stderr: false,
+          verbose:      verbose,
+        )
 
         # If mounting without agreeing to EULA succeeded, there is none.
         plist = if without_eula.success?
@@ -136,13 +143,24 @@ module UnpackStrategy
         else
           cdr_path = mount_dir/path.basename.sub_ext(".cdr")
 
-          system_command! "hdiutil",
-                          args: ["convert", "-quiet", "-format", "UDTO", "-o", cdr_path, path],
-                          verbose: verbose
+          quiet_flag = "-quiet" unless verbose
 
-          with_eula = system_command! "hdiutil",
-                                      args: ["attach", "-plist", "-nobrowse", "-readonly", "-noidme", "-mountrandom", mount_dir, cdr_path],
-                                      verbose: verbose
+          system_command!(
+            "hdiutil",
+            args:    [
+              "convert", *quiet_flag, "-format", "UDTO", "-o", cdr_path, path
+            ],
+            verbose: verbose,
+          )
+
+          with_eula = system_command!(
+            "hdiutil",
+            args:    [
+              "attach", "-plist", "-nobrowse", "-readonly", "-noidme",
+              "-mountrandom", mount_dir, cdr_path
+            ],
+            verbose: verbose,
+          )
 
           if verbose && !(eula_text = without_eula.stdout).empty?
             ohai "Software License Agreement for '#{path}':"

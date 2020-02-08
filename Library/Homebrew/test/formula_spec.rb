@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require "test/support/fixtures/testball"
 require "formula"
 
@@ -17,7 +19,7 @@ describe Formula do
   describe "::new" do
     let(:klass) do
       Class.new(described_class) do
-        url "http://example.com/foo-1.0.tar.gz"
+        url "https://brew.sh/foo-1.0.tar.gz"
       end
     end
 
@@ -277,22 +279,22 @@ describe Formula do
     expect(f).not_to need_migration
   end
 
-  describe "#installed?" do
+  describe "#latest_version_installed?" do
     let(:f) { Testball.new }
 
     it "returns false if the #installed_prefix is not a directory" do
       allow(f).to receive(:installed_prefix).and_return(double(directory?: false))
-      expect(f).not_to be_installed
+      expect(f).not_to be_latest_version_installed
     end
 
     it "returns false if the #installed_prefix does not have children" do
       allow(f).to receive(:installed_prefix).and_return(double(directory?: true, children: []))
-      expect(f).not_to be_installed
+      expect(f).not_to be_latest_version_installed
     end
 
     it "returns true if the #installed_prefix has children" do
       allow(f).to receive(:installed_prefix).and_return(double(directory?: true, children: [double]))
-      expect(f).to be_installed
+      expect(f).to be_latest_version_installed
     end
   end
 
@@ -380,7 +382,7 @@ describe Formula do
 
       stamps_with_revisions.each do |stamp, revision|
         version = "HEAD-#{stamp}"
-        version << "_#{revision}" unless revision.zero?
+        version = "#{version}_#{revision}" unless revision.zero?
 
         prefix = f.rack/version
         prefix.mkpath
@@ -510,22 +512,22 @@ describe Formula do
 
   specify "spec integration" do
     f = formula do
-      homepage "http://example.com"
+      homepage "https://brew.sh"
 
-      url "http://example.com/test-0.1.tbz"
-      mirror "http://example.org/test-0.1.tbz"
+      url "https://brew.sh/test-0.1.tbz"
+      mirror "https://example.org/test-0.1.tbz"
       sha256 TEST_SHA256
 
-      head "http://example.com/test.git", tag: "foo"
+      head "https://brew.sh/test.git", tag: "foo"
 
       devel do
-        url "http://example.com/test-0.2.tbz"
-        mirror "http://example.org/test-0.2.tbz"
+        url "https://brew.sh/test-0.2.tbz"
+        mirror "https://example.org/test-0.2.tbz"
         sha256 TEST_SHA256
       end
     end
 
-    expect(f.homepage).to eq("http://example.com")
+    expect(f.homepage).to eq("https://brew.sh")
     expect(f.version).to eq(Version.create("0.1"))
     expect(f).to be_stable
     expect(f.stable.version).to eq(Version.create("0.1"))
@@ -798,7 +800,7 @@ describe Formula do
     stub_formula_loader(f1)
 
     java = JavaRequirement.new
-    x11 = X11Requirement.new("x11", [:recommended])
+    x11 = X11Requirement.new([:recommended])
     xcode = XcodeRequirement.new(["1.0", :optional])
 
     expect(Set.new(f1.recursive_requirements)).to eq(Set[java, x11])
@@ -869,10 +871,10 @@ describe Formula do
         Tab.create(f, DevelopmentTools.default_compiler, :libcxx).write
       end
 
-      expect(f1).to be_installed
-      expect(f2).to be_installed
-      expect(f3).to be_installed
-      expect(f4).to be_installed
+      expect(f1).to be_latest_version_installed
+      expect(f2).to be_latest_version_installed
+      expect(f3).to be_latest_version_installed
+      expect(f4).to be_latest_version_installed
       expect(f3.eligible_kegs_for_cleanup.sort_by(&:version))
         .to eq([f2, f1].map { |f| Keg.new(f.prefix) })
     end
@@ -888,9 +890,9 @@ describe Formula do
       f3.brew { f3.install }
 
       expect(f1.prefix).to eq((HOMEBREW_PINNED_KEGS/f1.name).resolved_path)
-      expect(f1).to be_installed
-      expect(f2).to be_installed
-      expect(f3).to be_installed
+      expect(f1).to be_latest_version_installed
+      expect(f2).to be_latest_version_installed
+      expect(f3).to be_latest_version_installed
       expect(f3.eligible_kegs_for_cleanup).to eq([Keg.new(f2.prefix)])
     end
 
@@ -1089,10 +1091,6 @@ describe Formula do
       tab
     end
 
-    def reset_outdated_kegs
-      f.instance_variable_set(:@outdated_kegs, nil)
-    end
-
     example "greater different tap installed" do
       setup_tab_for_prefix(greater_prefix, tap: "user/repo")
       expect(f.outdated_kegs).to be_empty
@@ -1206,7 +1204,7 @@ describe Formula do
       expect(f.outdated_kegs).to be_empty
 
       setup_tab_for_prefix(greater_prefix, tap: "homebrew/core")
-      reset_outdated_kegs
+      described_class.clear_cache
 
       expect(f.outdated_kegs).to be_empty
     end
@@ -1218,12 +1216,12 @@ describe Formula do
 
       setup_tab_for_prefix(outdated_prefix)
       setup_tab_for_prefix(extra_outdated_prefix, tap: "homebrew/core")
-      reset_outdated_kegs
+      described_class.clear_cache
 
       expect(f.outdated_kegs).not_to be_empty
 
       setup_tab_for_prefix(outdated_prefix, tap: "user/repo")
-      reset_outdated_kegs
+      described_class.clear_cache
 
       expect(f.outdated_kegs).not_to be_empty
     end
@@ -1235,7 +1233,7 @@ describe Formula do
       expect(f.outdated_kegs).to be_empty
 
       setup_tab_for_prefix(same_prefix, tap: "user/repo")
-      reset_outdated_kegs
+      described_class.clear_cache
 
       expect(f.outdated_kegs).to be_empty
     end
@@ -1247,7 +1245,7 @@ describe Formula do
 
       tab.source["versions"] = { "stable" => f.version.to_s }
       tab.write
-      reset_outdated_kegs
+      described_class.clear_cache
 
       expect(f.outdated_kegs).to be_empty
     end
@@ -1264,42 +1262,40 @@ describe Formula do
       let(:testball_repo) { HOMEBREW_PREFIX/"testball_repo" }
 
       example do
-        begin
-          outdated_stable_prefix = HOMEBREW_CELLAR/"testball/1.0"
-          head_prefix_a = HOMEBREW_CELLAR/"testball/HEAD"
-          head_prefix_b = HOMEBREW_CELLAR/"testball/HEAD-aaaaaaa_1"
-          head_prefix_c = HOMEBREW_CELLAR/"testball/HEAD-18a7103"
+        outdated_stable_prefix = HOMEBREW_CELLAR/"testball/1.0"
+        head_prefix_a = HOMEBREW_CELLAR/"testball/HEAD"
+        head_prefix_b = HOMEBREW_CELLAR/"testball/HEAD-aaaaaaa_1"
+        head_prefix_c = HOMEBREW_CELLAR/"testball/HEAD-18a7103"
 
-          setup_tab_for_prefix(outdated_stable_prefix)
-          tab_a = setup_tab_for_prefix(head_prefix_a, versions: { "stable" => "1.0" })
-          setup_tab_for_prefix(head_prefix_b)
+        setup_tab_for_prefix(outdated_stable_prefix)
+        tab_a = setup_tab_for_prefix(head_prefix_a, versions: { "stable" => "1.0" })
+        setup_tab_for_prefix(head_prefix_b)
 
-          testball_repo.mkdir
-          testball_repo.cd do
-            FileUtils.touch "LICENSE"
+        testball_repo.mkdir
+        testball_repo.cd do
+          FileUtils.touch "LICENSE"
 
-            system("git", "init")
-            system("git", "add", "--all")
-            system("git", "commit", "-m", "Initial commit")
-          end
-
-          expect(f.outdated_kegs(fetch_head: true)).not_to be_empty
-
-          tab_a.source["versions"] = { "stable" => f.version.to_s }
-          tab_a.write
-          reset_outdated_kegs
-          expect(f.outdated_kegs(fetch_head: true)).not_to be_empty
-
-          head_prefix_a.rmtree
-          reset_outdated_kegs
-          expect(f.outdated_kegs(fetch_head: true)).not_to be_empty
-
-          setup_tab_for_prefix(head_prefix_c, source_modified_time: 1)
-          reset_outdated_kegs
-          expect(f.outdated_kegs(fetch_head: true)).to be_empty
-        ensure
-          testball_repo.rmtree if testball_repo.exist?
+          system("git", "init")
+          system("git", "add", "--all")
+          system("git", "commit", "-m", "Initial commit")
         end
+
+        expect(f.outdated_kegs(fetch_head: true)).not_to be_empty
+
+        tab_a.source["versions"] = { "stable" => f.version.to_s }
+        tab_a.write
+        described_class.clear_cache
+        expect(f.outdated_kegs(fetch_head: true)).not_to be_empty
+
+        head_prefix_a.rmtree
+        described_class.clear_cache
+        expect(f.outdated_kegs(fetch_head: true)).not_to be_empty
+
+        setup_tab_for_prefix(head_prefix_c, source_modified_time: 1)
+        described_class.clear_cache
+        expect(f.outdated_kegs(fetch_head: true)).to be_empty
+      ensure
+        testball_repo.rmtree if testball_repo.exist?
       end
     end
 
@@ -1348,13 +1344,13 @@ describe Formula do
         setup_tab_for_prefix(prefix_b, versions: { "stable" => "2.14", "version_scheme" => 2 })
 
         expect(f.outdated_kegs).not_to be_empty
-        reset_outdated_kegs
+        described_class.clear_cache
 
         prefix_c = HOMEBREW_CELLAR/"testball/20141009"
         setup_tab_for_prefix(prefix_c, versions: { "stable" => "20141009", "version_scheme" => 3 })
 
         expect(f.outdated_kegs).not_to be_empty
-        reset_outdated_kegs
+        described_class.clear_cache
 
         prefix_d = HOMEBREW_CELLAR/"testball/20141011"
         setup_tab_for_prefix(prefix_d, versions: { "stable" => "20141009", "version_scheme" => 3 })
@@ -1377,7 +1373,7 @@ describe Formula do
         setup_tab_for_prefix(head_prefix, versions: { "stable" => "1.0", "version_scheme" => 1 })
         expect(f.outdated_kegs).not_to be_empty
 
-        reset_outdated_kegs
+        described_class.clear_cache
         head_prefix.rmtree
 
         setup_tab_for_prefix(head_prefix, versions: { "stable" => "1.0", "version_scheme" => 2 })

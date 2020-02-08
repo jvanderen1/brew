@@ -1,45 +1,61 @@
-#:  * `fetch` [`--force`] [`--retry`] [`-v`] [`--devel`|`--HEAD`] [`--deps`] [`--build-from-source`|`--force-bottle`] <formulae>:
-#:    Download the source packages for the given <formulae>.
-#:    For tarballs, also print SHA-256 checksums.
-#:
-#:    If `--HEAD` or `--devel` is passed, fetch that version instead of the
-#:    stable version.
-#:
-#:    If `-v` is passed, do a verbose VCS checkout, if the URL represents a VCS.
-#:    This is useful for seeing if an existing VCS cache has been updated.
-#:
-#:    If `--force` (or `-f`) is passed, remove a previously cached version and re-fetch.
-#:
-#:    If `--retry` is passed, retry if a download fails or re-download if the
-#:    checksum of a previously cached version no longer matches.
-#:
-#:    If `--deps` is passed, also download dependencies for any listed <formulae>.
-#:
-#:    If `--build-from-source` (or `-s`) is passed, download the source rather than a
-#:    bottle.
-#:
-#:    If `--force-bottle` is passed, download a bottle if it exists for the
-#:    current or newest version of macOS, even if it would not be used during
-#:    installation.
+# frozen_string_literal: true
 
 require "formula"
 require "fetch"
+require "cli/parser"
 
 module Homebrew
   module_function
 
+  def fetch_args
+    Homebrew::CLI::Parser.new do
+      usage_banner <<~EOS
+        `fetch` [<options>] <formula>
+
+        Download a bottle (if available) or source packages for <formula>.
+        For tarballs, also print SHA-256 checksums.
+      EOS
+      switch "--HEAD",
+             description: "Fetch HEAD version instead of stable version."
+      switch "--devel",
+             description: "Fetch development version instead of stable version."
+      switch :force,
+             description: "Remove a previously cached version and re-fetch."
+      switch :verbose,
+             description: "Do a verbose VCS checkout, if the URL represents a VCS. This is useful for "\
+                          "seeing if an existing VCS cache has been updated."
+      switch "--retry",
+             description: "Retry if downloading fails or re-download if the checksum of a previously cached "\
+                          "version no longer matches."
+      switch "--deps",
+             description: "Also download dependencies for any listed <formula>."
+      switch "-s", "--build-from-source",
+             description: "Download source packages rather than a bottle."
+      switch "--build-bottle",
+             description: "Download source packages (for eventual bottling) rather than a bottle."
+      switch "--force-bottle",
+             description: "Download a bottle if it exists for the current or newest version of macOS, "\
+                          "even if it would not be used during installation."
+      switch :debug
+      conflicts "--devel", "--HEAD"
+      conflicts "--build-from-source", "--build-bottle", "--force-bottle"
+    end
+  end
+
   def fetch
+    fetch_args.parse
+
     raise FormulaUnspecifiedError if ARGV.named.empty?
 
-    if ARGV.include? "--deps"
+    if args.deps?
       bucket = []
-      ARGV.formulae.each do |f|
+      Homebrew.args.formulae.each do |f|
         bucket << f
         bucket.concat f.recursive_dependencies.map(&:to_formula)
       end
       bucket.uniq!
     else
-      bucket = ARGV.formulae
+      bucket = Homebrew.args.formulae
     end
 
     puts "Fetching: #{bucket * ", "}" if bucket.size > 1
@@ -54,6 +70,7 @@ module Homebrew
           raise
         rescue => e
           raise if ARGV.homebrew_developer?
+
           fetched_bottle = false
           onoe e.message
           opoo "Bottle fetch failed: fetching the source."
@@ -63,6 +80,7 @@ module Homebrew
       end
 
       next if fetched_bottle
+
       fetch_formula(f)
 
       f.resources.each do |r|
@@ -98,7 +116,7 @@ module Homebrew
 
   def retry_fetch?(f)
     @fetch_failed ||= Set.new
-    if ARGV.include?("--retry") && @fetch_failed.add?(f)
+    if args.retry? && @fetch_failed.add?(f)
       ohai "Retrying download"
       f.clear_cache
       true
@@ -109,12 +127,12 @@ module Homebrew
   end
 
   def fetch_fetchable(f)
-    f.clear_cache if ARGV.force?
+    f.clear_cache if args.force?
 
     already_fetched = f.cached_download.exist?
 
     begin
-      download = f.fetch
+      download = f.fetch(verify_download_integrity: false)
     rescue DownloadError
       retry if retry_fetch? f
       raise

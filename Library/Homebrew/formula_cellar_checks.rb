@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require "utils/shell"
 
 module FormulaCellarChecks
@@ -14,7 +16,7 @@ module FormulaCellarChecks
 
     <<~EOS
       #{prefix_bin} is not in your PATH
-      You can amend this by altering your #{Utils::Shell.profile} file
+      You can amend this by altering your #{Utils::Shell.profile} file.
     EOS
   end
 
@@ -42,6 +44,7 @@ module FormulaCellarChecks
 
   def check_jars
     return unless formula.lib.directory?
+
     jars = formula.lib.children.select { |g| g.extname == ".jar" }
     return if jars.empty?
 
@@ -56,14 +59,20 @@ module FormulaCellarChecks
     EOS
   end
 
+  VALID_LIBRARY_EXTENSIONS = %w[.a .jnilib .la .o .so .jar .prl .pm .sh].freeze
+
+  def valid_library_extension?(filename)
+    VALID_LIBRARY_EXTENSIONS.include? filename.extname
+  end
+  alias generic_valid_library_extension? valid_library_extension?
+
   def check_non_libraries
     return unless formula.lib.directory?
 
-    valid_extensions = %w[.a .dylib .framework .jnilib .la .o .so
-                          .jar .prl .pm .sh]
     non_libraries = formula.lib.children.reject do |g|
       next true if g.directory?
-      valid_extensions.include? g.extname
+
+      valid_library_extension? g
     end
     return if non_libraries.empty?
 
@@ -90,7 +99,8 @@ module FormulaCellarChecks
 
   def check_generic_executables(bin)
     return unless bin.directory?
-    generic_names = %w[run service start stop]
+
+    generic_names = %w[service start stop]
     generics = bin.children.select { |g| generic_names.include? g.basename.to_s }
     return if generics.empty?
 
@@ -113,7 +123,7 @@ module FormulaCellarChecks
       easy-install.pth files were found
       These .pth files are likely to cause link conflicts. Please invoke
       setup.py using Language::Python.setup_install_args.
-      The offending files are
+      The offending files are:
         #{pth_found * "\n        "}
     EOS
   end
@@ -128,10 +138,11 @@ module FormulaCellarChecks
     end
 
     return unless bad_dir_name
+
     <<~EOS
       Emacs Lisp files were installed into the wrong site-lisp subdirectory.
       They should be installed into:
-      #{share}/emacs/site-lisp/#{name}
+        #{share}/emacs/site-lisp/#{name}
     EOS
   end
 
@@ -142,11 +153,12 @@ module FormulaCellarChecks
 
     elisps = (share/"emacs/site-lisp").children.select { |file| %w[.el .elc].include? file.extname }
     return if elisps.empty?
+
     <<~EOS
       Emacs Lisp files were linked directly to #{HOMEBREW_PREFIX}/share/emacs/site-lisp
       This may cause conflicts with other packages.
       They should instead be installed into:
-      #{share}/emacs/site-lisp/#{name}
+        #{share}/emacs/site-lisp/#{name}
 
       The offending files are:
         #{elisps * "\n        "}

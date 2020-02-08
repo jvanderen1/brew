@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 class Version
   NULL = Class.new do
     include Comparable
@@ -26,6 +28,15 @@ class Version
       true
     end
 
+    # For OS::Mac::Version compatibility
+    def requires_nehalem_cpu?
+      false
+    end
+    alias_method :requires_sse4?, :requires_nehalem_cpu?
+    alias_method :requires_sse41?, :requires_nehalem_cpu?
+    alias_method :requires_sse42?, :requires_nehalem_cpu?
+    alias_method :requires_popcnt?, :requires_nehalem_cpu?
+
     def to_f
       Float::NAN
     end
@@ -40,7 +51,7 @@ class Version
     alias_method :to_str, :to_s
 
     def inspect
-      "#<Version::NULL>".freeze
+      "#<Version::NULL>"
     end
-  end.new
+  end.new.freeze
 end

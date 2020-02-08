@@ -1,4 +1,6 @@
-describe "brew services", :integration_test, :needs_macos, :needs_network, retry: 3 do
+# frozen_string_literal: true
+
+describe "brew services", :integration_test, :needs_macos, :needs_network do
   it "allows controlling services" do
     setup_remote_tap "homebrew/services"
 

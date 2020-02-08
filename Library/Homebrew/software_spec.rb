@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require "resource"
 require "checksum"
 require "version"
@@ -7,6 +9,7 @@ require "dependency_collector"
 require "utils/bottles"
 require "patch"
 require "compilers"
+require "global"
 require "os/mac/version"
 
 class SoftwareSpec
@@ -23,9 +26,10 @@ class SoftwareSpec
   attr_reader :dependency_collector
   attr_reader :bottle_specification
   attr_reader :compiler_failures
+  attr_reader :uses_from_macos_elements
 
   def_delegators :@resource, :stage, :fetch, :verify_download_integrity, :source_modified_time
-  def_delegators :@resource, :cached_download, :clear_cache
+  def_delegators :@resource, :download_name, :cached_download, :clear_cache
   def_delegators :@resource, :checksum, :mirrors, :specs, :using
   def_delegators :@resource, :version, :mirror, *Checksum::TYPES
   def_delegators :@resource, :downloader
@@ -54,9 +58,7 @@ class SoftwareSpec
     resources.each_value do |r|
       r.owner = self
       r.version ||= begin
-        if version.nil?
-          raise "#{full_name}: version missing for \"#{r.name}\" resource!"
-        end
+        raise "#{full_name}: version missing for \"#{r.name}\" resource!" if version.nil?
 
         if version.head?
           Version.create("HEAD")
@@ -70,12 +72,14 @@ class SoftwareSpec
 
   def url(val = nil, specs = {})
     return @resource.url if val.nil?
+
     @resource.url(val, specs)
     dependency_collector.add(@resource)
   end
 
   def bottle_unneeded?
     return false unless @bottle_disable_reason
+
     @bottle_disable_reason.unneeded?
   end
 
@@ -109,6 +113,7 @@ class SoftwareSpec
   def resource(name, klass = Resource, &block)
     if block_given?
       raise DuplicateResourceError, name if resource_defined?(name)
+
       res = klass.new(name, &block)
       resources[name] = res
       dependency_collector.add(res)
@@ -127,16 +132,13 @@ class SoftwareSpec
 
   def option(name, description = "")
     opt = PREDEFINED_OPTIONS.fetch(name) do
-      if name.is_a?(Symbol)
-        odisabled "passing arbitrary symbols (i.e. #{name.inspect}) to `option`"
-      end
-
       unless name.is_a?(String)
         raise ArgumentError, "option name must be string or symbol; got a #{name.class}: #{name}"
       end
       raise ArgumentError, "option name is required" if name.empty?
       raise ArgumentError, "option name must be longer than one character: #{name}" unless name.length > 1
       raise ArgumentError, "option name must not start with dashes: #{name}" if name.start_with?("-")
+
       Option.new(name, description)
     end
     options << opt
@@ -144,6 +146,7 @@ class SoftwareSpec
 
   def deprecated_option(hash)
     raise ArgumentError, "deprecated_option hash must not be empty" if hash.empty?
+
     hash.each do |old_options, new_options|
       Array(old_options).each do |old_option|
         Array(new_options).each do |new_option|
@@ -153,6 +156,7 @@ class SoftwareSpec
           old_flag = deprecated_option.old_flag
           new_flag = deprecated_option.current_flag
           next unless @flags.include? old_flag
+
           @flags -= [old_flag]
           @flags |= [new_flag]
           @deprecated_flags << deprecated_option
@@ -167,6 +171,10 @@ class SoftwareSpec
     add_dep_option(dep) if dep
   end
 
+  def uses_from_macos(spec)
+    depends_on(spec)
+  end
+
   def deps
     dependency_collector.deps
   end
@@ -174,13 +182,11 @@ class SoftwareSpec
   def recursive_dependencies
     deps_f = []
     recursive_dependencies = deps.map do |dep|
-      begin
-        deps_f << dep.to_formula
-        dep
-      rescue TapFormulaUnavailableError
-        # Don't complain about missing cross-tap dependencies
-        next
-      end
+      deps_f << dep.to_formula
+      dep
+    rescue TapFormulaUnavailableError
+      # Don't complain about missing cross-tap dependencies
+      next
     end.compact.uniq
     deps_f.compact.each do |f|
       f.recursive_dependencies.each do |dep|
@@ -205,7 +211,6 @@ class SoftwareSpec
   end
 
   def fails_with(compiler, &block)
-    odisabled "fails_with :llvm" if compiler == :llvm
     compiler_failures << CompilerFailure.create(compiler, &block)
   end
 
@@ -252,24 +257,28 @@ class Bottle
     end
 
     def initialize(name, version, tag, rebuild)
-      @name = name
+      @name = File.basename name
       @version = version
-      @tag = tag.to_s.gsub(/_or_later$/, "")
+      @tag = tag.to_s
       @rebuild = rebuild
     end
 
     def to_s
-      prefix + suffix
+      "#{name}--#{version}#{extname}"
     end
     alias to_str to_s
 
-    def prefix
-      "#{name}-#{version}.#{tag}"
+    def json
+      "#{name}--#{version}.#{tag}.bottle.json"
     end
 
-    def suffix
+    def bintray
+      "#{name}-#{version}#{extname}"
+    end
+
+    def extname
       s = rebuild.positive? ? ".#{rebuild}" : ""
-      ".bottle#{s}.tar.gz"
+      ".#{tag}.bottle#{s}.tar.gz"
     end
   end
 
@@ -290,7 +299,7 @@ class Bottle
     checksum, tag = spec.checksum_for(Utils::Bottles.tag)
 
     filename = Filename.create(formula, tag, spec.rebuild)
-    @resource.url(build_url(spec.root_url, filename),
+    @resource.url("#{spec.root_url}/#{filename.bintray}",
                   select_download_strategy(spec.root_url_specs))
     @resource.version = formula.pkg_version
     @resource.checksum = checksum
@@ -314,10 +323,6 @@ class Bottle
 
   private
 
-  def build_url(root_url, filename)
-    "#{root_url}/#{filename}"
-  end
-
   def select_download_strategy(specs)
     specs[:using] ||= DownloadStrategyDetector.detect(@spec.root_url)
     specs
@@ -325,8 +330,7 @@ class Bottle
 end
 
 class BottleSpecification
-  DEFAULT_PREFIX = "/usr/local".freeze
-  DEFAULT_CELLAR = "/usr/local/Cellar".freeze
+  DEFAULT_PREFIX = Homebrew::DEFAULT_PREFIX
 
   attr_rw :prefix, :cellar, :rebuild
   attr_accessor :tap
@@ -334,8 +338,8 @@ class BottleSpecification
 
   def initialize
     @rebuild = 0
-    @prefix = DEFAULT_PREFIX
-    @cellar = DEFAULT_CELLAR
+    @prefix = Homebrew::DEFAULT_PREFIX
+    @cellar = Homebrew::DEFAULT_CELLAR
     @collector = Utils::Bottles::Collector.new
     @root_url_specs = {}
   end
@@ -353,7 +357,7 @@ class BottleSpecification
     cellar == :any || cellar == :any_skip_relocation || cellar == HOMEBREW_CELLAR.to_s
   end
 
-  # Does the Bottle this BottleSpecification belongs to need to be relocated?
+  # Does the {Bottle} this BottleSpecification belongs to need to be relocated?
   def skip_relocation?
     cellar == :any_skip_relocation
   end
@@ -378,11 +382,10 @@ class BottleSpecification
   def checksums
     tags = collector.keys.sort_by do |tag|
       # Sort non-MacOS tags below MacOS tags.
-      begin
-        OS::Mac::Version.from_symbol tag
-      rescue ArgumentError
-        "0.#{tag}"
-      end
+
+      OS::Mac::Version.from_symbol tag
+    rescue ArgumentError
+      "0.#{tag}"
     end
     checksums = {}
     tags.reverse_each do |tag|
@@ -407,3 +410,5 @@ class PourBottleCheck
     @formula.send(:define_method, :pour_bottle?, &block)
   end
 end
+
+require "extend/os/software_spec"

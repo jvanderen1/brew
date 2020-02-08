@@ -1,15 +1,17 @@
+# frozen_string_literal: true
+
 require "cmd/cask"
 
-describe Hbc::DSL::Appcast do
+describe Cask::DSL::Appcast do
   subject { described_class.new(url, params) }
 
-  let(:url) { "http://example.com" }
+  let(:url) { "https://brew.sh" }
   let(:uri) { URI(url) }
   let(:params) { {} }
 
   describe "#to_s" do
     it "returns the parsed URI string" do
-      expect(subject.to_s).to eq("http://example.com")
+      expect(subject.to_s).to eq("https://brew.sh")
     end
   end
 
@@ -17,14 +19,6 @@ describe Hbc::DSL::Appcast do
     let(:yaml) { [uri, params].to_yaml }
 
     context "with empty parameters" do
-      it "returns an YAML serialized array composed of the URI and parameters" do
-        expect(subject.to_yaml).to eq(yaml)
-      end
-    end
-
-    context "with checkpoint in parameters" do
-      let(:params) { { checkpoint: "abc123" } }
-
       it "returns an YAML serialized array composed of the URI and parameters" do
         expect(subject.to_yaml).to eq(yaml)
       end

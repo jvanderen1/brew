@@ -1,11 +1,8 @@
+# frozen_string_literal: true
+
 module Language
   module Haskell
     module Cabal
-      def self.included(base)
-        # use llvm-gcc on Lion or below, as when building GHC)
-        base.fails_with(:clang) if MacOS.version <= :lion
-      end
-
       def cabal_sandbox(options = {})
         pwd = Pathname.pwd
         home = options[:home] || pwd
@@ -16,7 +13,7 @@ module Language
         saved_home = ENV["HOME"]
         ENV["HOME"] = home
 
-        system "cabal", "sandbox", "init"
+        system "cabal", "v1-sandbox", "init"
         cabal_sandbox_bin = pwd/".cabal-sandbox/bin"
         mkdir_p cabal_sandbox_bin
 
@@ -25,7 +22,7 @@ module Language
         ENV.prepend_path "PATH", cabal_sandbox_bin
 
         # avoid updating the cabal package database more than once
-        system "cabal", "update" unless (home/".cabal/packages").exist?
+        system "cabal", "v1-update" unless (home/".cabal/packages").exist?
 
         yield
 
@@ -41,7 +38,7 @@ module Language
       end
 
       def cabal_sandbox_add_source(*args)
-        system "cabal", "sandbox", "add-source", *args
+        system "cabal", "v1-sandbox", "add-source", *args
       end
 
       def cabal_install(*args)
@@ -55,11 +52,11 @@ module Language
         # needed value by a formula at this time (February 2016) was 43,478 for
         # git-annex, so 100,000 should be enough to avoid most gratuitous
         # backjumps build failures.
-        system "cabal", "install", "--jobs=#{make_jobs}", "--max-backjumps=100000", *args
+        system "cabal", "v1-install", "--jobs=#{make_jobs}", "--max-backjumps=100000", *args
       end
 
       def cabal_configure(flags)
-        system "cabal", "configure", flags
+        system "cabal", "v1-configure", flags
       end
 
       def cabal_install_tools(*tools)
@@ -71,9 +68,7 @@ module Language
         rm_rf Dir[".cabal-sandbox/*packages.conf.d/"]
       end
 
-      def install_cabal_package(*args)
-        options = args[-1].is_a?(Hash) ? args.pop : {}
-
+      def install_cabal_package(*args, **options)
         cabal_sandbox do
           cabal_install_tools(*options[:using]) if options[:using]
 

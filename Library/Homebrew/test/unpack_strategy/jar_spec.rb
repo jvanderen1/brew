@@ -1,6 +1,8 @@
+# frozen_string_literal: true
+
 require_relative "shared_examples"
 
-describe UnpackStrategy::Jar do
+describe UnpackStrategy::Jar, :needs_unzip do
   let(:path) { TEST_FIXTURE_DIR/"test.jar" }
 
   include_examples "UnpackStrategy::detect"

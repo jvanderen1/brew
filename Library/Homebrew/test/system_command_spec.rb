@@ -1,18 +1,20 @@
+# frozen_string_literal: true
+
 describe SystemCommand do
   describe "#initialize" do
-    let(:env_args) { ["bash", "-c", 'printf "%s" "${A?}" "${B?}" "${C?}"'] }
-    let(:env) { { "A" => "1", "B" => "2", "C" => "3" } }
-    let(:sudo) { false }
-
     subject(:command) {
       described_class.new(
         "env",
-        args: env_args,
-        env: env,
+        args:         env_args,
+        env:          env,
         must_succeed: true,
-        sudo: sudo,
+        sudo:         sudo,
       )
     }
+
+    let(:env_args) { ["bash", "-c", 'printf "%s" "${A?}" "${B?}" "${C?}"'] }
+    let(:env) { { "A" => "1", "B" => "2", "C" => "3" } }
+    let(:sudo) { false }
 
     context "when given some environment variables" do
       its("run!.stdout") { is_expected.to eq("123") }
@@ -21,7 +23,7 @@ describe SystemCommand do
         it "includes the given variables explicitly" do
           expect(Open3)
             .to receive(:popen3)
-            .with(an_instance_of(Hash), "env", "A=1", "B=2", "C=3", "env", *env_args, {})
+            .with(an_instance_of(Hash), ["/usr/bin/env", "/usr/bin/env"], "A=1", "B=2", "C=3", "env", *env_args, {})
             .and_call_original
 
           command.run!
@@ -46,8 +48,8 @@ describe SystemCommand do
         it "includes the given variables explicitly" do
           expect(Open3)
             .to receive(:popen3)
-            .with(an_instance_of(Hash), "/usr/bin/sudo", "-E", "--",
-                  "env", "A=1", "B=2", "C=3", "env", *env_args, {})
+            .with(an_instance_of(Hash), ["/usr/bin/sudo", "/usr/bin/sudo"], "-E", "--",
+                  "/usr/bin/env", "A=1", "B=2", "C=3", "env", *env_args, {})
             .and_wrap_original do |original_popen3, *_, &block|
               original_popen3.call("true", &block)
             end
@@ -223,9 +225,56 @@ describe SystemCommand do
 
     it 'does not format `stderr` when it starts with \r' do
       expect {
-        system_command "bash",
-                       args: ["-c", 'printf "\r%s" "###################                                                       27.6%" 1>&2']
-      }.to output("\r###################                                                       27.6%").to_stderr
+        system_command \
+          "bash",
+          args: [
+            "-c",
+            'printf "\r%s" "###################                                                       27.6%" 1>&2',
+          ]
+      }.to output( \
+        "\r###################                                                       27.6%",
+      ).to_stderr
+    end
+
+    context "when given an executable with spaces and no arguments" do
+      let(:executable) { mktmpdir/"App Uninstaller" }
+
+      before do
+        executable.write <<~SH
+          #!/usr/bin/env bash
+          true
+        SH
+
+        FileUtils.chmod "+x", executable
+      end
+
+      it "does not interpret the executable as a shell line" do
+        expect(system_command(executable)).to be_a_success
+      end
+    end
+
+    context "when given arguments with secrets" do
+      it "does not leak the secrets" do
+        redacted_msg = /#{Regexp.escape("username:******")}/
+        expect do
+          described_class.run! "curl",
+                               args:    %w[--user username:hunter2],
+                               verbose: true,
+                               secrets: %w[hunter2]
+        end.to raise_error.with_message(redacted_msg).and output(redacted_msg).to_stdout
+      end
+
+      it "does not leak the secrets set by environment" do
+        redacted_msg = /#{Regexp.escape("username:******")}/
+        expect do
+          ENV["PASSWORD"] = "hunter2"
+          described_class.run! "curl",
+                               args:    %w[--user username:hunter2],
+                               verbose: true
+        ensure
+          ENV.delete "PASSWORD"
+        end.to raise_error.with_message(redacted_msg).and output(redacted_msg).to_stdout
+      end
     end
   end
 end

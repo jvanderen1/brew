@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 class SystemConfig
   class << self
     undef describe_java, describe_homebrew_ruby
@@ -6,10 +8,12 @@ class SystemConfig
       # java_home doesn't exist on all macOSs; it might be missing on older versions.
       return "N/A" unless File.executable? "/usr/libexec/java_home"
 
-      java_xml = Utils.popen_read("/usr/libexec/java_home", "--xml", "--failfast", err: :close)
-      return "N/A" unless $CHILD_STATUS.success?
+      out, _, status = system_command("/usr/libexec/java_home", args: ["--xml", "--failfast"], print_stderr: false)
+      return "N/A" unless status.success?
+
       javas = []
-      REXML::XPath.each(REXML::Document.new(java_xml), "//key[text()='JVMVersion']/following-sibling::string") do |item|
+      xml = REXML::Document.new(out)
+      REXML::XPath.each(xml, "//key[text()='JVMVersion']/following-sibling::string") do |item|
         javas << item.text
       end
       javas.uniq.join(", ")
@@ -18,7 +22,7 @@ class SystemConfig
     def describe_homebrew_ruby
       s = describe_homebrew_ruby_version
 
-      if RUBY_PATH.to_s !~ %r{^/System/Library/Frameworks/Ruby\.framework/Versions/[12]\.[089]/usr/bin/ruby}
+      if !RUBY_PATH.to_s.match?(%r{^/System/Library/Frameworks/Ruby\.framework/Versions/[12]\.[089]/usr/bin/ruby})
         "#{s} => #{RUBY_PATH}"
       else
         s
@@ -34,32 +38,19 @@ class SystemConfig
     end
 
     def clt
-      @clt ||= if MacOS::CLT.installed? && MacOS::Xcode.version >= "4.3"
-        MacOS::CLT.version
-      end
-    end
-
-    def clt_headers
-      @clt_headers ||= if MacOS::CLT.headers_installed?
-        MacOS::CLT.headers_version
-      end
+      @clt ||= MacOS::CLT.version if MacOS::CLT.installed?
     end
 
     def xquartz
-      @xquartz ||= if MacOS::XQuartz.installed?
-        "#{MacOS::XQuartz.version} => #{describe_path(MacOS::XQuartz.prefix)}"
-      end
+      @xquartz ||= "#{MacOS::XQuartz.version} => #{describe_path(MacOS::XQuartz.prefix)}" if MacOS::XQuartz.installed?
     end
 
     def dump_verbose_config(f = $stdout)
       dump_generic_verbose_config(f)
       f.puts "macOS: #{MacOS.full_version}-#{kernel}"
       f.puts "CLT: #{clt || "N/A"}"
-      if MacOS::CLT.separate_header_package?
-        f.puts "CLT headers: #{clt_headers || "N/A"}"
-      end
       f.puts "Xcode: #{xcode || "N/A"}"
-      f.puts "XQuartz: #{xquartz || "N/A"}"
+      f.puts "XQuartz: #{xquartz}" if xquartz
     end
   end
 end

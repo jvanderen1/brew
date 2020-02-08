@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require "descriptions"
 
 describe Descriptions do
@@ -20,7 +22,7 @@ describe Descriptions do
     descriptions_hash["somedev/external/foo"] = "External foo"
 
     expect { subject.print }.to output(
-      <<~EOS
+      <<~EOS,
         homebrew/core/foo: Core foo
         somedev/external/foo: External foo
       EOS
@@ -33,7 +35,7 @@ describe Descriptions do
     descriptions_hash["otherdev/external/foo"] = "Other external foo"
 
     expect { subject.print }.to output(
-      <<~EOS
+      <<~EOS,
         homebrew/core/foo: Core foo
         otherdev/external/foo: Other external foo
         somedev/external/foo: External foo

@@ -1,26 +1,8 @@
-#:  * `info`:
-#:    Display brief statistics for your Homebrew installation.
-#:
-#:  * `info` <formula>:
-#:    Display information about <formula>.
-#:
-#:  * `info` `--github` <formula>:
-#:    Open a browser to the GitHub History page for <formula>.
-#:
-#:    To view formula history locally: `brew log -p <formula>`
-#:
-#:  * `info` `--json=`<version> (`--all`|`--installed`|<formulae>):
-#:    Print a JSON representation of <formulae>. Currently the only accepted value
-#:    for <version> is `v1`.
-#:
-#:    Pass `--all` to get information on all formulae, or `--installed` to get
-#:    information on all installed formulae.
-#:
-#:    See the docs for examples of using the JSON output:
-#:    <https://docs.brew.sh/Querying-Brew>
+# frozen_string_literal: true
 
 require "missing_formula"
 require "caveats"
+require "cli/parser"
 require "options"
 require "formula"
 require "keg"
@@ -30,37 +12,116 @@ require "json"
 module Homebrew
   module_function
 
+  VALID_DAYS = %w[30 90 365].freeze
+  VALID_FORMULA_CATEGORIES = %w[install install-on-request build-error].freeze
+  VALID_CATEGORIES = (VALID_FORMULA_CATEGORIES + %w[cask-install os-version]).freeze
+
+  def info_args
+    Homebrew::CLI::Parser.new do
+      usage_banner <<~EOS
+        `info` [<options>] [<formula>]
+
+        Display brief statistics for your Homebrew installation.
+
+        If <formula> is provided, show summary of information about <formula>.
+      EOS
+      switch "--analytics",
+             description: "List global Homebrew analytics data or, if specified, installation and "\
+                          "build error data for <formula> (provided neither `HOMEBREW_NO_ANALYTICS` "\
+                          "nor `HOMEBREW_NO_GITHUB_API` are set)."
+      flag   "--days",
+             depends_on:  "--analytics",
+             description: "How many days of analytics data to retrieve. "\
+                          "The value for <days> must be `30`, `90` or `365`. The default is `30`."
+      flag   "--category",
+             depends_on:  "--analytics",
+             description: "Which type of analytics data to retrieve. "\
+                          "The value for <category> must be `install`, `install-on-request` or `build-error`; "\
+                          "`cask-install` or `os-version` may be specified if <formula> is not. "\
+                          "The default is `install`."
+      switch "--github",
+             description: "Open the GitHub source page for <formula> in a browser. "\
+                          "To view formula history locally: `brew log -p` <formula>"
+      flag   "--json",
+             description: "Print a JSON representation of <formula>. Currently the default and only accepted "\
+                          "value for <version> is `v1`. See the docs for examples of using the JSON "\
+                          "output: <https://docs.brew.sh/Querying-Brew>"
+      switch "--installed",
+             depends_on:  "--json",
+             description: "Print JSON of formulae that are currently installed."
+      switch "--all",
+             depends_on:  "--json",
+             description: "Print JSON of all available formulae."
+      switch :verbose,
+             description: "Show more verbose analytics data for <formula>."
+      switch :debug
+      conflicts "--installed", "--all"
+    end
+  end
+
   def info
-    # eventually we'll solidify an API, but we'll keep old versions
-    # awhile around for compatibility
-    if ARGV.json == "v1"
+    info_args.parse
+
+    if args.days.present?
+      raise UsageError, "--days must be one of #{VALID_DAYS.join(", ")}" unless VALID_DAYS.include?(args.days)
+    end
+
+    if args.category.present?
+      if Homebrew.args.named.present? && !VALID_FORMULA_CATEGORIES.include?(args.category)
+        raise UsageError, "--category must be one of #{VALID_FORMULA_CATEGORIES.join(", ")} when querying formulae"
+      end
+
+      unless VALID_CATEGORIES.include?(args.category)
+        raise UsageError, "--category must be one of #{VALID_CATEGORIES.join(", ")}"
+      end
+    end
+
+    if args.json
+      raise UsageError, "Invalid JSON version: #{args.json}" unless ["v1", true].include? args.json
+      if !(args.all? || args.installed?) && Homebrew.args.named.blank?
+        raise UsageError, "This command's option requires a formula argument"
+      end
+
       print_json
-    elsif ARGV.flag? "--github"
-      exec_browser(*ARGV.formulae.map { |f| github_info(f) })
+    elsif args.github?
+      raise UsageError, "This command's option requires a formula argument" if Homebrew.args.named.blank?
+
+      exec_browser(*Homebrew.args.formulae.map { |f| github_info(f) })
     else
       print_info
     end
   end
 
   def print_info
-    if ARGV.named.empty?
-      if HOMEBREW_CELLAR.exist?
+    if Homebrew.args.named.blank?
+      if args.analytics?
+        Utils::Analytics.output
+      elsif HOMEBREW_CELLAR.exist?
         count = Formula.racks.length
-        puts "#{Formatter.pluralize(count, "keg")}, #{HOMEBREW_CELLAR.abv}"
+        puts "#{count} #{"keg".pluralize(count)}, #{HOMEBREW_CELLAR.dup.abv}"
       end
     else
-      ARGV.named.each_with_index do |f, i|
+      Homebrew.args.named.each_with_index do |f, i|
         puts unless i.zero?
         begin
-          if f.include?("/") || File.exist?(f)
-            info_formula Formulary.factory(f)
+          formula = if f.include?("/") || File.exist?(f)
+            Formulary.factory(f)
           else
-            info_formula Formulary.find_with_priority(f)
+            Formulary.find_with_priority(f)
+          end
+          if args.analytics?
+            Utils::Analytics.formula_output(formula)
+          else
+            info_formula(formula)
           end
         rescue FormulaUnavailableError => e
+          if args.analytics?
+            Utils::Analytics.output(filter: f)
+            next
+          end
           ofail e.message
           # No formula with this name, try a missing formula lookup
-          if (reason = MissingFormula.reason(f))
+          if (reason = MissingFormula.reason(f, show_info: true))
             $stderr.puts reason
           end
         end
@@ -69,12 +130,12 @@ module Homebrew
   end
 
   def print_json
-    ff = if ARGV.include? "--all"
+    ff = if args.all?
       Formula.sort
-    elsif ARGV.include? "--installed"
+    elsif args.installed?
       Formula.installed.sort
     else
-      ARGV.formulae
+      Homebrew.args.formulae
     end
     json = ff.map(&:to_hash)
     puts JSON.generate(json)
@@ -111,9 +172,7 @@ module Homebrew
     end
 
     if devel = f.devel
-      s = "devel #{devel.version}"
-      s += " (bottled)" if devel.bottled?
-      specs << s
+      specs << "devel #{devel.version}"
     end
 
     specs << "HEAD" if f.head
@@ -168,6 +227,7 @@ module Homebrew
       %w[build required recommended optional].map do |type|
         reqs = f.requirements.select(&:"#{type}?")
         next if reqs.to_a.empty?
+
         puts "#{type.capitalize}: #{decorate_requirements(reqs)}"
       end
     end
@@ -179,10 +239,12 @@ module Homebrew
 
     caveats = Caveats.new(f)
     ohai "Caveats", caveats.to_s unless caveats.empty?
+
+    Utils::Analytics.formula_output(f)
   end
 
   def decorate_dependencies(dependencies)
-    deps_status = dependencies.collect do |dep|
+    deps_status = dependencies.map do |dep|
       if dep.satisfied?([])
         pretty_installed(dep_display_s(dep))
       else
@@ -193,7 +255,7 @@ module Homebrew
   end
 
   def decorate_requirements(requirements)
-    req_status = requirements.collect do |req|
+    req_status = requirements.map do |req|
       req_s = req.display_s
       req.satisfied? ? pretty_installed(req_s) : pretty_uninstalled(req_s)
     end
@@ -202,6 +264,7 @@ module Homebrew
 
   def dep_display_s(dep)
     return dep.name if dep.option_tags.empty?
+
     "#{dep.name} #{dep.option_tags.map { |o| "--#{o}" }.join(" ")}"
   end
 end

@@ -1,8 +1,10 @@
-require "test/support/helper/spec/shared_examples/hbc_dsl_base"
+# frozen_string_literal: true
 
-describe Hbc::DSL::UninstallPostflight, :cask do
-  let(:cask) { Hbc::CaskLoader.load(cask_path("basic-cask")) }
-  let(:dsl) { Hbc::DSL::UninstallPostflight.new(cask, FakeSystemCommand) }
+require "test/cask/dsl/shared_examples/base"
 
-  it_behaves_like Hbc::DSL::Base
+describe Cask::DSL::UninstallPostflight, :cask do
+  let(:cask) { Cask::CaskLoader.load(cask_path("basic-cask")) }
+  let(:dsl) { described_class.new(cask, FakeSystemCommand) }
+
+  it_behaves_like Cask::DSL::Base
 end

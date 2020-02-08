@@ -1,15 +1,18 @@
-#:  * `tap-unpin` <tap>:
-#:    Unpin <tap> so its formulae are no longer prioritized. See also `tap-pin`.
+# frozen_string_literal: true
+
+require "cli/parser"
 
 module Homebrew
   module_function
 
-  def tap_unpin
-    ARGV.named.each do |name|
-      tap = Tap.fetch(name)
-      raise "unpinning #{tap} is not allowed" if tap.core_tap?
-      tap.unpin
-      ohai "Unpinned #{tap}"
+  def tap_unpin_args
+    Homebrew::CLI::Parser.new do
+      hide_from_man_page!
     end
+  end
+
+  def tap_unpin
+    odisabled "brew tap-pin user/tap",
+              "fully-scoped user/tap/formula naming"
   end
 end

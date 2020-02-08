@@ -1,33 +1,45 @@
-#:  * `linkage` [`--test`] [`--reverse`] <formula>:
-#:    Checks the library links of an installed formula.
-#:
-#:    Only works on installed formulae. An error is raised if it is run on
-#:    uninstalled formulae.
-#:
-#:    If `--test` is passed, only display missing libraries and exit with a
-#:    non-zero exit code if any missing libraries were found.
-#:
-#:    If `--reverse` is passed, print the dylib followed by the binaries
-#:    which link to it for each library the keg references.
+# frozen_string_literal: true
 
 require "cache_store"
 require "linkage_checker"
-require "cli_parser"
+require "cli/parser"
 
 module Homebrew
   module_function
 
-  def linkage
-    Homebrew::CLI::Parser.parse do
-      switch "--test"
-      switch "--reverse"
+  def linkage_args
+    Homebrew::CLI::Parser.new do
+      usage_banner <<~EOS
+        `linkage` [<options>] [<formula>]
+
+        Check the library links from the given <formula> kegs. If no <formula> are
+        provided, check all kegs. Raises an error if run on uninstalled formulae.
+      EOS
+      switch "--test",
+             description: "Show only missing libraries and exit with a non-zero status if any missing "\
+                          "libraries are found."
+      switch "--reverse",
+             description: "For every library that a keg references, print its dylib path followed by the "\
+                          "binaries that link to it."
+      switch "--cached",
+             description: "Print the cached linkage values stored in `HOMEBREW_CACHE`, set by a previous "\
+                          "`brew linkage` run."
       switch :verbose
       switch :debug
     end
+  end
+
+  def linkage
+    linkage_args.parse
 
     CacheStoreDatabase.use(:linkage) do |db|
-      ARGV.kegs.each do |keg|
-        ohai "Checking #{keg.name} linkage" if ARGV.kegs.size > 1
+      kegs = if Homebrew.args.kegs.empty?
+        Formula.installed.map(&:opt_or_installed_prefix_keg).reject(&:nil?)
+      else
+        Homebrew.args.kegs
+      end
+      kegs.each do |keg|
+        ohai "Checking #{keg.name} linkage" if kegs.size > 1
 
         result = LinkageChecker.new(keg, cache_db: db)
 

@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 module Language
   module Node
     def self.npm_cache_config
@@ -11,15 +13,15 @@ module Language
       # directory, consequently breaking that assumption. We require a tarball
       # because npm install creates a "real" installation when fed a tarball.
       output = Utils.popen_read("npm pack --ignore-scripts")
-      if !$CHILD_STATUS.exitstatus.zero? || output.lines.empty?
-        raise "npm failed to pack #{Dir.pwd}"
-      end
+      raise "npm failed to pack #{Dir.pwd}" if !$CHILD_STATUS.exitstatus.zero? || output.lines.empty?
+
       output.lines.last.chomp
     end
 
     def self.setup_npm_environment
       # guard that this is only run once
       return if @env_set
+
       @env_set = true
       # explicitly use our npm and node-gyp executables instead of the user
       # managed ones in HOMEBREW_PREFIX/lib/node_modules which might be broken

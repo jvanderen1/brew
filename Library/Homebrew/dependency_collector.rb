@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require "dependency"
 require "dependencies"
 require "requirement"
@@ -53,11 +55,13 @@ class DependencyCollector
 
   def git_dep_if_needed(tags)
     return if Utils.git_available?
+
     Dependency.new("git", tags)
   end
 
   def subversion_dep_if_needed(tags)
     return if Utils.svn_available?
+
     Dependency.new("subversion", tags)
   end
 
@@ -77,7 +81,9 @@ class DependencyCollector
     Dependency.new("bzip2", tags) unless which("bzip2")
   end
 
-  def ld64_dep_if_needed(*); end
+  def java_dep_if_needed(tags)
+    JavaRequirement.new(tags)
+  end
 
   def self.tar_needs_xz_dependency?
     !new.xz_dep_if_needed([]).nil?
@@ -103,7 +109,7 @@ class DependencyCollector
   end
 
   def parse_string_spec(spec, tags)
-    if spec =~ HOMEBREW_TAP_FORMULA_REGEX
+    if spec.match?(HOMEBREW_TAP_FORMULA_REGEX)
       TapDependency.new(spec, tags)
     elsif tags.empty?
       Dependency.new(spec, tags)
@@ -114,24 +120,23 @@ class DependencyCollector
 
   def parse_symbol_spec(spec, tags)
     case spec
-    when :x11        then X11Requirement.new(spec.to_s, tags)
-    when :xcode      then XcodeRequirement.new(tags)
-    when :linux      then LinuxRequirement.new(tags)
-    when :macos      then MacOSRequirement.new(tags)
-    when :arch       then ArchRequirement.new(tags)
-    when :java       then JavaRequirement.new(tags)
-    when :osxfuse    then OsxfuseRequirement.new(tags)
-    when :tuntap     then TuntapRequirement.new(tags)
-    when :ld64       then ld64_dep_if_needed(tags)
+    when :arch          then ArchRequirement.new(tags)
+    when :codesign      then CodesignRequirement.new(tags)
+    when :java          then java_dep_if_needed(tags)
+    when :linux         then LinuxRequirement.new(tags)
+    when :macos         then MacOSRequirement.new(tags)
+    when :maximum_macos then MacOSRequirement.new(tags, comparator: "<=")
+    when :osxfuse       then OsxfuseRequirement.new(tags)
+    when :tuntap        then TuntapRequirement.new(tags)
+    when :x11           then X11Requirement.new(tags)
+    when :xcode         then XcodeRequirement.new(tags)
     else
       raise ArgumentError, "Unsupported special dependency #{spec.inspect}"
     end
   end
 
   def parse_class_spec(spec, tags)
-    unless spec < Requirement
-      raise TypeError, "#{spec.inspect} is not a Requirement subclass"
-    end
+    raise TypeError, "#{spec.inspect} is not a Requirement subclass" unless spec < Requirement
 
     spec.new(tags)
   end
@@ -158,7 +163,7 @@ class DependencyCollector
       # allow unknown strategies to pass through
     else
       raise TypeError,
-        "#{strategy.inspect} is not an AbstractDownloadStrategy subclass"
+            "#{strategy.inspect} is not an AbstractDownloadStrategy subclass"
     end
   end
 

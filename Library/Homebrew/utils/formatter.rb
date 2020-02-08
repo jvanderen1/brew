@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require "utils/tty"
 
 module Formatter
@@ -29,6 +31,23 @@ module Formatter
 
   def error(string, label: nil)
     label(label, string, :red)
+  end
+
+  # Wraps text to fit within a given number of columns using regular expressions that:
+  #
+  # 1. convert hard-wrapped paragraphs to a single line
+  # 2. find any option descriptions longer than a pre-set length and wrap between words
+  #    with a hanging indent, without breaking any words that overflow
+  # 3. wrap any remaining description lines that need wrapping with the same indent
+  # 4. wrap all lines to the given width.
+  # @see https://macromates.com/blog/2006/wrapping-text-with-regular-expressions/
+  def wrap(s, width = 172)
+    desc = OPTION_DESC_WIDTH
+    indent = width - desc
+    s.gsub(/(?<=\S) *\n(?=\S)/, " ")
+     .gsub(/^( +-.+  +(?=\S.{#{desc}}))(.{1,#{desc}})( +|$)\n?/, "\\1\\2\n" + " " * indent)
+     .gsub(/^( {#{indent}}(?=\S.{#{desc}}))(.{1,#{desc}})( +|$)\n?/, "\\1\\2\n" + " " * indent)
+     .gsub(/(.{1,#{width}})( +|$)\n?/, "\\1\n")
   end
 
   def url(string)
@@ -77,7 +96,7 @@ module Formatter
 
     gap_string = "".rjust(gap_size)
 
-    output = ""
+    output = +""
 
     rows.times do |row_index|
       item_indices_for_row = row_index.step(objects.size - 1, rows).to_a
@@ -89,33 +108,11 @@ module Formatter
       # don't add trailing whitespace to last column
       last = objects.values_at(item_indices_for_row.last)
 
-      output.concat((first_n + last).join(gap_string)).concat("\n")
+      output.concat((first_n + last)
+            .join(gap_string))
+            .concat("\n")
     end
 
-    output
-  end
-
-  def pluralize(count, singular, plural = nil, show_count: true)
-    return (show_count ? "#{count} #{singular}" : singular.to_s) if count == 1
-
-    *adjectives, noun = singular.to_s.split(" ")
-
-    plural ||= {
-      "formula" => "formulae",
-    }.fetch(noun, "#{noun}s")
-
-    words = adjectives.push(plural).join(" ")
-
-    show_count ? "#{count} #{words}" : words
-  end
-
-  def comma_and(*items)
-    # TODO: Remove when RuboCop 0.57.3 is released.
-    # False positive has been fixed and merged, but is not yet in a
-    # stable release: https://github.com/rubocop-hq/rubocop/pull/6038
-    *items, last = items.map(&:to_s) # rubocop:disable Lint/ShadowedArgument
-    return last if items.empty?
-
-    "#{items.join(", ")} and #{last}"
+    output.freeze
   end
 end

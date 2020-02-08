@@ -1,11 +1,6 @@
-#:  * `irb` [`--examples`] [`--pry`]:
-#:    Enter the interactive Homebrew Ruby shell.
-#:
-#:    If `--examples` is passed, several examples will be shown.
-#:    If `--pry` is passed or HOMEBREW_PRY is set, pry will be
-#:    used instead of irb.
+# frozen_string_literal: true
 
-require "cli_parser"
+require "cli/parser"
 
 class Symbol
   def f(*args)
@@ -22,11 +17,24 @@ end
 module Homebrew
   module_function
 
-  def irb
-    Homebrew::CLI::Parser.parse do
-      switch "--examples"
-      switch "--pry", env: :pry
+  def irb_args
+    Homebrew::CLI::Parser.new do
+      usage_banner <<~EOS
+        `irb` [<options>]
+
+        Enter the interactive Homebrew Ruby shell.
+      EOS
+      switch "--examples",
+             description: "Show several examples."
+      switch "--pry",
+             env:         :pry,
+             description: "Use Pry instead of IRB. Implied if `HOMEBREW_PRY` is set."
     end
+  end
+
+  def irb
+    # work around IRB modifying ARGV.
+    irb_args.parse(ARGV.dup)
 
     if args.examples?
       puts "'v8'.f # => instance of the v8 formula"
@@ -46,8 +54,7 @@ module Homebrew
 
     require "formula"
     require "keg"
-
-    require "hbc"
+    require "cask/all"
 
     ohai "Interactive Homebrew Shell"
     puts "Example commands available with: brew irb --examples"

@@ -1,3 +1,11 @@
+# frozen_string_literal: true
+
+require "cmd/shared_examples/args_parse"
+
+describe "Homebrew.cat_args" do
+  it_behaves_like "parseable arguments"
+end
+
 describe "brew cat", :integration_test do
   it "prints the content of a given Formula" do
     formula_file = setup_test_formula "testball"

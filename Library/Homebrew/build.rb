@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 # This script is loaded by formula_installer as a separate instance.
 # Thrown exceptions are propagated back to the parent process over a pipe
 
@@ -32,6 +34,7 @@ class Build
     # Only allow Homebrew-approved directories into the PATH, unless
     # a formula opts-in to allowing the user's path.
     return unless formula.env.userpaths? || reqs.any? { |rq| rq.env.userpaths? }
+
     ENV.userpaths!
   end
 
@@ -103,8 +106,8 @@ class Build
 
     new_env = {
       "TMPDIR" => HOMEBREW_TEMP,
-      "TEMP" => HOMEBREW_TEMP,
-      "TMP" => HOMEBREW_TEMP,
+      "TEMP"   => HOMEBREW_TEMP,
+      "TMP"    => HOMEBREW_TEMP,
     }
 
     with_env(new_env) do
@@ -124,7 +127,7 @@ class Build
         end
         if ARGV.interactive?
           ohai "Entering interactive mode"
-          puts "Type `exit' to return and finalize the installation"
+          puts "Type `exit` to return and finalize the installation."
           puts "Install to this prefix: #{formula.prefix}"
 
           if ARGV.git?
@@ -174,7 +177,7 @@ class Build
       raise
     end
     Keg.new(path).optlink
-  rescue StandardError
+  rescue
     raise "#{f.opt_prefix} not present or broken\nPlease reinstall #{f.full_name}. Sorry :("
   end
 end
@@ -190,7 +193,24 @@ begin
   build   = Build.new(formula, options)
   build.install
 rescue Exception => e # rubocop:disable Lint/RescueException
-  Marshal.dump(e, error_pipe)
+  error_hash = JSON.parse e.to_json
+
+  # Special case: need to recreate BuildErrors in full
+  # for proper analytics reporting and error messages.
+  # BuildErrors are specific to build processes and not other
+  # children, which is why we create the necessary state here
+  # and not in Utils.safe_fork.
+  if error_hash["json_class"] == "BuildError"
+    error_hash["cmd"] = e.cmd
+    error_hash["args"] = e.args
+    error_hash["env"] = e.env
+  elsif error_hash["json_class"] == "ErrorDuringExecution"
+    error_hash["cmd"] = e.cmd
+    error_hash["status"] = e.status.exitstatus
+    error_hash["output"] = e.output
+  end
+
+  error_pipe.puts error_hash.to_json
   error_pipe.close
   exit! 1
 end

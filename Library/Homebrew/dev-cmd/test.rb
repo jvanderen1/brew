@@ -1,34 +1,46 @@
-#:  * `test` [`--devel`|`--HEAD`] [`--debug`] [`--keep-tmp`] <formula>:
-#:    Most formulae provide a test method. `brew test` <formula> runs this
-#:    test method. There is no standard output or return code, but it should
-#:    generally indicate to the user if something is wrong with the installed
-#:    formula.
-#:
-#:    To test the development or head version of a formula, use `--devel` or
-#:    `--HEAD`.
-#:
-#:    If `--debug` (or `-d`) is passed and the test fails, an interactive debugger will be
-#:    launched with access to IRB or a shell inside the temporary test directory.
-#:
-#:    If `--keep-tmp` is passed, the temporary files created for the test are
-#:    not deleted.
-#:
-#:    Example: `brew install jruby && brew test jruby`
+# frozen_string_literal: true
 
 require "extend/ENV"
-require "formula_assertions"
 require "sandbox"
 require "timeout"
+require "cli/parser"
 
 module Homebrew
   module_function
 
+  def test_args
+    Homebrew::CLI::Parser.new do
+      usage_banner <<~EOS
+        `test` [<options>] <formula>
+
+        Run the test method provided by an installed formula.
+        There is no standard output or return code, but generally it should notify the
+        user if something is wrong with the installed formula.
+
+        *Example:* `brew install jruby && brew test jruby`
+      EOS
+      switch "--devel",
+             description: "Test the development version of a formula."
+      switch "--HEAD",
+             description: "Test the head version of a formula."
+      switch "--keep-tmp",
+             description: "Retain the temporary files created for the test."
+      switch :verbose
+      switch :debug
+      conflicts "--devel", "--HEAD"
+    end
+  end
+
   def test
+    test_args.parse
+
     raise FormulaUnspecifiedError if ARGV.named.empty?
 
-    ARGV.resolved_formulae.each do |f|
+    require "formula_assertions"
+
+    Homebrew.args.resolved_formulae.each do |f|
       # Cannot test uninstalled formulae
-      unless f.installed?
+      unless f.latest_version_installed?
         ofail "Testing requires the latest version of #{f.full_name}"
         next
       end
@@ -40,7 +52,7 @@ module Homebrew
       end
 
       # Don't test unlinked formulae
-      if !ARGV.force? && !f.keg_only? && !f.linked?
+      if !Homebrew.args.force? && !f.keg_only? && !f.linked?
         ofail "#{f.full_name} is not linked"
         next
       end
@@ -49,6 +61,7 @@ module Homebrew
       missing_test_deps = f.recursive_dependencies do |_, dependency|
         Dependency.prune if dependency.installed?
         next if dependency.test?
+
         Dependency.prune if dependency.optional?
         Dependency.prune if dependency.build?
       end.map(&:to_s)
@@ -69,7 +82,7 @@ module Homebrew
           --
           #{HOMEBREW_LIBRARY_PATH}/test.rb
           #{f.path}
-        ].concat(ARGV.options_only)
+        ].concat(Homebrew.args.options_only)
 
         if f.head?
           args << "--HEAD"
@@ -86,6 +99,7 @@ module Homebrew
             sandbox.allow_write_log(f)
             sandbox.allow_write_xcode
             sandbox.allow_write_path(HOMEBREW_PREFIX/"var/cache")
+            sandbox.allow_write_path(HOMEBREW_PREFIX/"var/homebrew/locks")
             sandbox.allow_write_path(HOMEBREW_PREFIX/"var/log")
             sandbox.allow_write_path(HOMEBREW_PREFIX/"var/run")
             sandbox.exec(*args)
@@ -93,9 +107,6 @@ module Homebrew
             exec(*args)
           end
         end
-      rescue ::Test::Unit::AssertionFailedError => e
-        ofail "#{f.full_name}: failed"
-        puts e.message
       rescue Exception => e # rubocop:disable Lint/RescueException
         ofail "#{f.full_name}: failed"
         puts e, e.backtrace

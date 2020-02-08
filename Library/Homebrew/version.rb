@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require "version/null"
 
 class Version
@@ -52,10 +54,10 @@ class Version
     end
   end
 
-  NULL_TOKEN = NullToken.new
+  NULL_TOKEN = NullToken.new.freeze
 
   class StringToken < Token
-    PATTERN = /[a-z]+[0-9]*/i
+    PATTERN = /[a-z]+[0-9]*/i.freeze
 
     def initialize(value)
       @value = value.to_s
@@ -72,7 +74,7 @@ class Version
   end
 
   class NumericToken < Token
-    PATTERN = /[0-9]+/i
+    PATTERN = /[0-9]+/i.freeze
 
     def initialize(value)
       @value = value.to_i
@@ -101,7 +103,7 @@ class Version
   end
 
   class AlphaToken < CompositeToken
-    PATTERN = /alpha[0-9]*|a[0-9]+/i
+    PATTERN = /alpha[0-9]*|a[0-9]+/i.freeze
 
     def <=>(other)
       case other
@@ -116,7 +118,7 @@ class Version
   end
 
   class BetaToken < CompositeToken
-    PATTERN = /beta[0-9]*|b[0-9]+/i
+    PATTERN = /beta[0-9]*|b[0-9]+/i.freeze
 
     def <=>(other)
       case other
@@ -133,7 +135,7 @@ class Version
   end
 
   class PreToken < CompositeToken
-    PATTERN = /pre[0-9]*/i
+    PATTERN = /pre[0-9]*/i.freeze
 
     def <=>(other)
       case other
@@ -150,7 +152,7 @@ class Version
   end
 
   class RCToken < CompositeToken
-    PATTERN = /rc[0-9]*/i
+    PATTERN = /rc[0-9]*/i.freeze
 
     def <=>(other)
       case other
@@ -167,7 +169,7 @@ class Version
   end
 
   class PatchToken < CompositeToken
-    PATTERN = /p[0-9]*/i
+    PATTERN = /p[0-9]*/i.freeze
 
     def <=>(other)
       case other
@@ -189,7 +191,7 @@ class Version
     PatchToken::PATTERN,
     NumericToken::PATTERN,
     StringToken::PATTERN,
-  )
+  ).freeze
 
   class FromURL < Version
     def detected_from_url?
@@ -206,9 +208,7 @@ class Version
   end
 
   def self.create(val)
-    unless val.respond_to?(:to_str)
-      raise TypeError, "Version value must be a string; got a #{val.class} (#{val})"
-    end
+    raise TypeError, "Version value must be a string; got a #{val.class} (#{val})" unless val.respond_to?(:to_str)
 
     if val.to_str.start_with?("HEAD")
       HeadVersion.new(val)
@@ -229,9 +229,9 @@ class Version
 
     stem = if spec.directory?
       spec.basename
-    elsif %r{((?:sourceforge\.net|sf\.net)/.*)/download$} =~ spec_s
+    elsif spec_s.match?(%r{((?:sourceforge\.net|sf\.net)/.*)/download$})
       Pathname.new(spec.dirname).stem
-    elsif /\.[^a-zA-Z]+$/ =~ spec_s
+    elsif spec_s.match?(/\.[^a-zA-Z]+$/)
       Pathname.new(spec_s).basename
     else
       spec.stem
@@ -351,9 +351,9 @@ class Version
     # e.g. https://github.com/JustArchi/ArchiSteamFarm/releases/download/2.3.2.0/ASF.zip
     # e.g. https://people.gnome.org/~newren/eg/download/1.7.5.2/eg
     m = %r{/([rvV]_?)?(\d\.\d+(\.\d+){,2})}.match(spec_s)
-    return m.captures[1] unless m.nil?
+    return m.captures.second unless m.nil?
 
-    # e.g. http://www.ijg.org/files/jpegsrc.v8d.tar.gz
+    # e.g. https://www.ijg.org/files/jpegsrc.v8d.tar.gz
     m = /\.v(\d+[a-z]?)/.match(stem)
     return m.captures.first unless m.nil?
 
@@ -365,9 +365,8 @@ class Version
   private_class_method :_parse
 
   def initialize(val)
-    unless val.respond_to?(:to_str)
-      raise TypeError, "Version value must be a string; got a #{val.class} (#{val})"
-    end
+    raise TypeError, "Version value must be a string; got a #{val.class} (#{val})" unless val.respond_to?(:to_str)
+
     @version = val.to_str
   end
 
@@ -415,9 +414,11 @@ class Version
         return a <=> b
       elsif a.numeric?
         return 1 if a > NULL_TOKEN
+
         l += 1
       elsif b.numeric?
         return -1 if b > NULL_TOKEN
+
         r += 1
       else
         return a <=> b

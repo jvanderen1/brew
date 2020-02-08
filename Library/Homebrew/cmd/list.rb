@@ -1,70 +1,81 @@
-#:  * `list`, `ls` [`--full-name`] [`-1`] [`-l`] [`-t`] [`-r`]:
-#:    List all installed formulae. If `--full-name` is passed, print formulae
-#:    with fully-qualified names. If `--full-name` is not passed, other
-#:    options (i.e. `-1`, `-l`, `-t` and `-r`) are passed to `ls` which produces the actual output.
-#:
-#:  * `list`, `ls` `--unbrewed`:
-#:    List all files in the Homebrew prefix not installed by Homebrew.
-#:
-#:  * `list`, `ls` [`--verbose`] [`--versions` [`--multiple`]] [`--pinned`] [<formulae>]:
-#:    List the installed files for <formulae>. Combined with `--verbose`, recursively
-#:    list the contents of all subdirectories in each <formula>'s keg.
-#:
-#:    If `--versions` is passed, show the version number for installed formulae,
-#:    or only the specified formulae if <formulae> are given. With `--multiple`,
-#:    only show formulae with multiple versions installed.
-#:
-#:    If `--pinned` is passed, show the versions of pinned formulae, or only the
-#:    specified (pinned) formulae if <formulae> are given.
-#:    See also `pin`, `unpin`.
+# frozen_string_literal: true
 
 require "metafiles"
 require "formula"
-require "cli_parser"
+require "cli/parser"
 
 module Homebrew
   module_function
 
-  def list
-    Homebrew::CLI::Parser.parse do
-      switch "--unbrewed"
-      switch "--pinned"
-      switch "--versions"
-      switch "--full-name"
-      switch "--multiple", depends_on: "--versions"
-      switch :verbose
-      # passed through to ls
-      switch "-1"
-      switch "-l"
-      switch "-t"
-      switch "-r"
-    end
+  def list_args
+    Homebrew::CLI::Parser.new do
+      usage_banner <<~EOS
+        `list`, `ls` [<options>] [<formula>]
 
-    # Use of exec means we don't explicitly exit
-    list_unbrewed if args.unbrewed?
+        List all installed formulae.
+
+        If <formula> is provided, summarise the paths within its current keg.
+      EOS
+      switch "--full-name",
+             description: "Print formulae with fully-qualified names. If `--full-name` is not "\
+                          "passed, other options (i.e. `-1`, `-l`, `-r` and `-t`) are passed to `ls`(1) "\
+                          "which produces the actual output."
+      switch "--unbrewed",
+             description: "List files in Homebrew's prefix not installed by Homebrew."
+      switch "--versions",
+             description: "Show the version number for installed formulae, or only the specified "\
+                          "formulae if <formula> are provided."
+      switch "--multiple",
+             depends_on:  "--versions",
+             description: "Only show formulae with multiple versions installed."
+      switch "--pinned",
+             description: "Show the versions of pinned formulae, or only the specified (pinned) "\
+                          "formulae if <formula> are provided. See also `pin`, `unpin`."
+      # passed through to ls
+      switch "-1",
+             description: "Force output to be one entry per line. " \
+                          "This is the default when output is not to a terminal."
+      switch "-l",
+             description: "List in long format. If the output is to a terminal, "\
+                          "a total sum for all the file sizes is printed before the long listing."
+      switch "-r",
+             description: "Reverse the order of the sort to list the oldest entries first."
+      switch "-t",
+             description: "Sort by time modified, listing most recently modified first."
+      switch :verbose
+      switch :debug
+    end
+  end
+
+  def list
+    list_args.parse
+
+    return list_unbrewed if args.unbrewed?
 
     # Unbrewed uses the PREFIX, which will exist
     # Things below use the CELLAR, which doesn't until the first formula is installed.
     unless HOMEBREW_CELLAR.exist?
-      raise NoSuchKegError, ARGV.named.first unless ARGV.named.empty?
+      raise NoSuchKegError, Hombrew.args.named.first if Homebrew.args.named.present?
+
       return
     end
 
     if args.pinned? || args.versions?
       filtered_list
-    elsif ARGV.named.empty?
+    elsif Homebrew.args.named.blank?
       if args.full_name?
         full_names = Formula.installed.map(&:full_name).sort(&tap_and_name_comparison)
         return if full_names.empty?
+
         puts Formatter.columns(full_names)
       else
         ENV["CLICOLOR"] = nil
-        exec "ls", *ARGV.options_only << HOMEBREW_CELLAR
+        safe_system "ls", *Homebrew.args.passthrough << HOMEBREW_CELLAR
       end
     elsif args.verbose? || !$stdout.tty?
-      exec "find", *ARGV.kegs.map(&:to_s) + %w[-not -type d -print]
+      system_command! "find", args: Homebrew.args.kegs.map(&:to_s) + %w[-not -type d -print], print_stdout: true
     else
-      ARGV.kegs.each { |keg| PrettyListing.new keg }
+      Homebrew.args.kegs.each { |keg| PrettyListing.new keg }
     end
   end
 
@@ -108,14 +119,14 @@ module Homebrew
     arguments.concat %w[)]
 
     cd HOMEBREW_PREFIX
-    exec "find", *arguments
+    safe_system "find", *arguments
   end
 
   def filtered_list
-    names = if ARGV.named.empty?
+    names = if Homebrew.args.named.blank?
       Formula.racks
     else
-      racks = ARGV.named.map { |n| Formulary.to_rack(n) }
+      racks = Homebrew.args.named.map { |n| Formulary.to_rack(n) }
       racks.select do |rack|
         Homebrew.failed = true unless rack.exist?
         rack.exist?
@@ -125,9 +136,7 @@ module Homebrew
       pinned_versions = {}
       names.sort.each do |d|
         keg_pin = (HOMEBREW_PINNED_KEGS/d.basename.to_s)
-        if keg_pin.exist? || keg_pin.symlink?
-          pinned_versions[d] = keg_pin.readlink.basename.to_s
-        end
+        pinned_versions[d] = keg_pin.readlink.basename.to_s if keg_pin.exist? || keg_pin.symlink?
       end
       pinned_versions.each do |d, version|
         puts d.basename.to_s.concat(args.versions? ? " #{version}" : "")
@@ -136,6 +145,7 @@ module Homebrew
       names.sort.each do |d|
         versions = d.subdirs.map { |pn| pn.basename.to_s }
         next if args.multiple? && versions.length < 2
+
         puts "#{d.basename} #{versions * " "}"
       end
     end

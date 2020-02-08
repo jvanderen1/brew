@@ -19,10 +19,7 @@ Second, read the [Troubleshooting Checklist](https://docs.brew.sh/Troubleshootin
 **If you don't read these it will take us far longer to help you with your problem.**
 
 ## Contributing
-[![Travis](https://img.shields.io/travis/Homebrew/brew.svg)](https://travis-ci.org/Homebrew/brew)
-[![Codecov](https://img.shields.io/codecov/c/github/Homebrew/brew.svg)](https://codecov.io/gh/Homebrew/brew)
-
-We'd love you to contribute to Homebrew. First, please read our [Contribution Guide](CONTRIBUTING.md) and [Code of Conduct](CODE_OF_CONDUCT.md#code-of-conduct).
+We'd love you to contribute to Homebrew. First, please read our [Contribution Guide](CONTRIBUTING.md) and [Code of Conduct](https://github.com/Homebrew/.github/blob/master/CODE_OF_CONDUCT.md#code-of-conduct).
 
 We explicitly welcome contributions from people who have never contributed to open-source before: we were all beginners once! We can help build on a partially working pull request with the aim of getting it merged. We are also actively seeking to diversify our contributors and especially welcome contributions from women from all backgrounds and people of colour.
 
@@ -32,21 +29,38 @@ Alternatively, for something more substantial, check out one of the issues label
 
 Good luck!
 
+## Donations
+Homebrew is a non-profit project run entirely by unpaid volunteers. We need your funds to pay for software, hardware and hosting around continuous integration and future improvements to the project. Every donation will be spent on making Homebrew better for our users.
+
+Please consider a regular donation through [GitHub Sponsors](https://github.com/sponsors/Homebrew) or [Patreon](https://www.patreon.com/homebrew).
+
+Alternatively, if you'd rather make a one-off payment:
+
+- [Donate with PayPal](https://www.paypal.com/cgi-bin/webscr?cmd=_s-xclick&hosted_button_id=V6ZE57MJRYC8L)
+- Donate by USA $ check from a USA bank:
+  - Make check payable to "Software Freedom Conservancy, Inc." and place "Directed donation: Homebrew" in the memo field. Checks should then be mailed to:
+    - Software Freedom Conservancy, Inc.
+      137 Montague ST  STE 380
+      BROOKLYN, NY 11201             USA
+- Donate by wire transfer: contact accounting@sfconservancy.org for wire transfer details.
+
+Homebrew is a member of the [Software Freedom Conservancy](https://sfconservancy.org) which provides us with an ability to receive tax-deductible, Homebrew earmarked donations (and [many other services](https://sfconservancy.org/members/services/)). Software Freedom Conservancy, Inc. is a 501(c)(3) organization incorporated in New York, and donations made to it are fully tax-deductible to the extent permitted by law.
+
 ## Security
 Please report security issues to our [HackerOne](https://hackerone.com/homebrew/).
 
 ## Who Are You?
-Homebrew's lead maintainer is [Mike McQuaid](https://github.com/mikemcquaid).
+Homebrew's [Project Leader](https://docs.brew.sh/Homebrew-Governance#6-project-leader) is [Mike McQuaid](https://github.com/MikeMcQuaid).
 
-Homebrew's project leadership committee is [Mike McQuaid](https://github.com/mikemcquaid), [ilovezfs](https://github.com/ilovezfs), [JCount](https://github.com/jcount), [Misty De Meo](https://github.com/mistydemeo) and [Markus Reiter](https://github.com/reitermarkus).
+Homebrew's [Project Leadership Committee](https://docs.brew.sh/Homebrew-Governance#4-project-leadership-committee) is [Misty De Meo](https://github.com/mistydemeo), [Shaun Jackman](https://github.com/sjackman), [Jonathan Chang](https://github.com/jonchang), [Sean Molenaar](https://github.com/SMillerDev) and [Markus Reiter](https://github.com/reitermarkus).
 
-Homebrew/homebrew-core's lead maintainer is [ilovezfs](https://github.com/ilovezfs).
+Homebrew's [Technical Steering Committee](https://docs.brew.sh/Homebrew-Governance#7-technical-steering-committee) is [Michka Popoff](https://github.com/imichka), [FX Coudert](https://github.com/fxcoudert), [Markus Reiter](https://github.com/reitermarkus), [Misty De Meo](https://github.com/mistydemeo) and [Mike McQuaid](https://github.com/MikeMcQuaid).
 
-Homebrew/brew's other current maintainers are [ilovezfs](https://github.com/ilovezfs), [JCount](https://github.com/jcount), [Misty De Meo](https://github.com/mistydemeo), [Gautham Goli](https://github.com/GauthamGoli), [Markus Reiter](https://github.com/reitermarkus) and [William Woodruff](https://github.com/woodruffw).
+Homebrew/brew's Linux maintainers are [Michka Popoff](https://github.com/imichka), [Shaun Jackman](https://github.com/sjackman), [Dawid Dziurla](https://github.com/dawidd6) and [Issy Long](https://github.com/issyl0).
 
-Homebrew/homebrew-core's other current maintainers are [FX Coudert](https://github.com/fxcoudert), [JCount](https://github.com/jcount), [Misty De Meo](https://github.com/mistydemeo) and [Tom Schoonjans](https://github.com/tschoonj).
+Homebrew's other current maintainers are [Claudia Pellegrino](https://github.com/claui), [Rui Chen](https://github.com/chenrui333), [Vitor Galvao](https://github.com/vitorgalvao), [Caleb Xu](https://github.com/alebcay), [Gautham Goli](https://github.com/GauthamGoli), [Steven Peters](https://github.com/scpeters), [William Woodruff](https://github.com/woodruffw), [Igor Kapkov](https://github.com/igas), [Izaak Beekman](https://github.com/zbeekman), [Eric Knibbe](https://github.com/EricFromCanada), [Viktor Szakats](https://github.com/vszakats), [Thierry Moisan](https://github.com/moisan), [Steven Peters](https://github.com/scpeters), [Tom Schoonjans](https://github.com/tschoonj) and [Issy Long](https://github.com/issyl0).
 
-Former maintainers with significant contributions include [Tim Smith](https://github.com/tdsmith), [Baptiste Fontaine](https://github.com/bfontaine), [Xu Cheng](https://github.com/xu-cheng), [Martin Afanasjew](https://github.com/UniqMartin), [Dominyk Tiller](https://github.com/DomT4), [Brett Koonce](https://github.com/asparagui), [Charlie Sharpsteen](https://github.com/Sharpie), [Jack Nagel](https://github.com/jacknagel), [Adam Vandenberg](https://github.com/adamv), [Andrew Janke](https://github.com/apjanke), [Alex Dunn](https://github.com/dunn), [neutric](https://github.com/neutric), [Tomasz Pajor](https://github.com/nijikon), [Uladzislau Shablinski](https://github.com/vladshablinsky), [Alyssa Ross](https://github.com/alyssais),  and Homebrew's creator: [Max Howell](https://github.com/mxcl).
+Former maintainers with significant contributions include [Jan Viljanen](https://github.com/javian), [JCount](https://github.com/jcount), [commitay](https://github.com/commitay), [Dominyk Tiller](https://github.com/DomT4), [Tim Smith](https://github.com/tdsmith), [Baptiste Fontaine](https://github.com/bfontaine), [Xu Cheng](https://github.com/xu-cheng), [Martin Afanasjew](https://github.com/UniqMartin), [Brett Koonce](https://github.com/asparagui), [Charlie Sharpsteen](https://github.com/Sharpie), [Jack Nagel](https://github.com/jacknagel), [Adam Vandenberg](https://github.com/adamv), [Andrew Janke](https://github.com/apjanke), [Alex Dunn](https://github.com/dunn), [neutric](https://github.com/neutric), [Tomasz Pajor](https://github.com/nijikon), [Uladzislau Shablinski](https://github.com/vladshablinsky), [Alyssa Ross](https://github.com/alyssais), [ilovezfs](https://github.com/ilovezfs), [Chongyu Zhu](https://github.com/lembacon) and Homebrew's creator: [Max Howell](https://github.com/mxcl).
 
 ## Community
 - [discourse.brew.sh (forum)](https://discourse.brew.sh)
@@ -57,25 +71,6 @@ Former maintainers with significant contributions include [Tim Smith](https://gi
 Code is under the [BSD 2-clause "Simplified" License](LICENSE.txt).
 Documentation is under the [Creative Commons Attribution license](https://creativecommons.org/licenses/by/4.0/).
 
-## Donations
-Homebrew is a non-profit project run entirely by unpaid volunteers. We need your funds to pay for software, hardware and hosting around continuous integration and future improvements to the project. Every donation will be spent on making Homebrew better for our users.
-
-Please consider a regular donation through Patreon:
-
-[![Donate with Patreon](https://img.shields.io/badge/patreon-donate-green.svg)](https://www.patreon.com/homebrew)
-
-Alternatively, if you'd rather make a one-off payment:
-
-- [Donate with PayPal](https://www.paypal.com/cgi-bin/webscr?cmd=_s-xclick&hosted_button_id=V6ZE57MJRYC8L)
-- Donate by USA $ check from a USA bank:
-  - Make check payable to "Software Freedom Conservancy, Inc." and place "Directed donation: Homebrew" in the memo field.  Checks should then be mailed to:
-    - Software Freedom Conservancy, Inc.
-      137 Montague ST  STE 380
-      BROOKLYN, NY 11201             USA
-- Donate by wire transfer: contact accounting@sfconservancy.org for wire transfer details.
-
-Homebrew is a member of the [Software Freedom Conservancy](https://sfconservancy.org) which provides us with an ability to receive tax-deductible, Homebrew earmarked donations (and [many other services](https://sfconservancy.org/members/services/)). Software Freedom Conservancy, Inc. is a 501(c)(3) organization incorporated in New York, and donations made to it are fully tax-deductible to the extent permitted by law.
-
 ## Sponsors
 Our Xserve ESXi boxes for CI are hosted by [MacStadium](https://www.macstadium.com).
 
@@ -85,15 +80,11 @@ Our Jenkins CI installation is hosted by [DigitalOcean](https://m.do.co/c/7e39c3
 
 ![DigitalOcean](https://cloud.githubusercontent.com/assets/125011/26827038/4b7b5ade-4ab3-11e7-811b-fed3ab0e934d.png)
 
-Our physical hardware is hosted by [Commsworld](https://www.commsworld.com).
-
-![Commsworld powered by Fluency](https://user-images.githubusercontent.com/125011/30822845-1716bc2c-a222-11e7-843e-ea7c7b6a1503.png)
-
 Our bottles (binary packages) are hosted by [Bintray](https://bintray.com/homebrew).
 
 [![Downloads by Bintray](https://bintray.com/docs/images/downloads_by_bintray_96.png)](https://bintray.com/homebrew)
 
-Secure password storage and syncing provided by [1Password for Teams](https://1password.com/teams/) by [AgileBits](https://agilebits.com).
+Secure password storage and syncing is provided by [1Password for Teams](https://1password.com/teams/) by [AgileBits](https://agilebits.com).
 
 [![AgileBits](https://da36klfizjv29.cloudfront.net/assets/branding/agilebits-fcca96e9b8e815c5c48c6b3e98156cb5.png)](https://agilebits.com)
 

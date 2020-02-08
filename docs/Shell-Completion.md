@@ -2,23 +2,32 @@
 
 Homebrew comes with completion definitions for the `brew` command. Some packages also provide completion definitions for their own programs.
 
-`zsh`, `bash` and `fish` are currently supported. (Homebrew provides `brew` completions for `zsh` and `bash`; `fish` provides its own `brew` completions.)
+`zsh`, `bash` and `fish` are currently supported.
 
-You must configure your shell to enable the completion support. This is because the Homebrew-managed completions are stored under `HOMEBREW_PREFIX`, which your system shell may not be aware of, and because it is difficult to automatically configure `bash` and `zsh` completions in a robust manner, so the Homebrew installer cannot do it for you.
+You must configure your shell to enable its completion support. This is because the Homebrew-managed completions are stored under `HOMEBREW_PREFIX` which your system shell may not be aware of, and since it is difficult to automatically configure `bash` and `zsh` completions in a robust manner, the Homebrew installer does not do it for you.
 
 ## Configuring Completions in `bash`
-To make Homebrew's completions available in `bash`, you must source the definitions as part of your shell startup. Add the following to your `~/.bashrc` file:
+
+To make Homebrew's completions available in `bash`, you must source the definitions as part of your shell's startup. Add the following to your `~/.bash_profile` file:
 
 ```sh
-if type brew 2&>/dev/null; then
-  for completion_file in $(brew --prefix)/etc/bash_completion.d/*; do
-    source "$completion_file"
-  done
+if type brew &>/dev/null; then
+  HOMEBREW_PREFIX="$(brew --prefix)"
+  if [[ -r "${HOMEBREW_PREFIX}/etc/profile.d/bash_completion.sh" ]]; then
+    source "${HOMEBREW_PREFIX}/etc/profile.d/bash_completion.sh"
+  else
+    for COMPLETION in "${HOMEBREW_PREFIX}/etc/bash_completion.d/"*; do
+      [[ -r "$COMPLETION" ]] && source "$COMPLETION"
+    done
+  fi
 fi
 ```
 
+Should you later install the `bash-completion` formula, this will automatically use its initialization script to read the completions files.
+
 ## Configuring Completions in `zsh`
-To make Homebrew's completions available in `zsh`, you must get the Homebrew-managed zsh site-functions on your `$FPATH` before initializing `zsh`'s completion facility. Add the following to your `~/.zshrc` file:
+
+To make Homebrew's completions available in `zsh`, you must get the Homebrew-managed zsh site-functions on your `FPATH` before initialising `zsh`'s completion facility. Add the following to your `~/.zshrc` file:
 
 ```sh
 if type brew &>/dev/null; then
@@ -26,7 +35,7 @@ if type brew &>/dev/null; then
 fi
 ```
 
-This must be done before `compinit` is called. (Note: if you are using Oh My Zsh, it will call `compinit` for you, so this must be done before you call `oh-my-zsh.sh`.)
+This must be done before `compinit` is called. Note that if you are using Oh My Zsh, it will call `compinit` for you, so this must be done before you call `oh-my-zsh.sh`.
 
 You may also need to forcibly rebuild `zcompdump`:
 
@@ -41,4 +50,5 @@ Additionally, if you receive "zsh compinit: insecure directories" warnings when 
 ```
 
 ## Configuring Completions in `fish`
+
 No configuration is needed in `fish`. Friendly!

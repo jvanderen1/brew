@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 describe "globally-scoped helper methods" do
   let(:dir) { mktmpdir }
 
@@ -115,18 +117,6 @@ describe "globally-scoped helper methods" do
       end
 
       expect(ENV["LC_ALL"]).to eq("en_US.UTF-8")
-    end
-  end
-
-  describe "#run_as_not_developer" do
-    it "temporarily unsets HOMEBREW_DEVELOPER" do
-      ENV["HOMEBREW_DEVELOPER"] = "foo"
-
-      run_as_not_developer do
-        expect(ENV["HOMEBREW_DEVELOPER"]).to be nil
-      end
-
-      expect(ENV["HOMEBREW_DEVELOPER"]).to eq("foo")
     end
   end
 
@@ -253,15 +243,18 @@ describe "globally-scoped helper methods" do
   end
 
   describe "#odeprecated" do
-    it "raises a MethodDeprecatedError" do
+    it "raises a MethodDeprecatedError when `disable` is true" do
       ENV.delete("HOMEBREW_DEVELOPER")
       expect {
         odeprecated(
           "method", "replacement",
-          caller: ["#{HOMEBREW_LIBRARY}/Taps/homebrew/homebrew-core/"],
+          caller:  ["#{HOMEBREW_LIBRARY}/Taps/homebrew/homebrew-core/"],
           disable: true
         )
-      }.to raise_error(MethodDeprecatedError, %r{method.*replacement.*homebrew/homebrew-core.*homebrew/core}m)
+      }.to raise_error(
+        MethodDeprecatedError,
+        %r{method.*replacement.*homebrew/core.*\/Taps\/homebrew\/homebrew-core\/}m,
+      )
     end
   end
 

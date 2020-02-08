@@ -1,82 +1,71 @@
-#:  * `reinstall` [`--display-times`] <formula>:
-#:    Uninstall and then install <formula> (with existing install options).
-#:
-#:    If `--display-times` is passed, install times for each formula are printed
-#:    at the end of the run.
+# frozen_string_literal: true
 
 require "formula_installer"
 require "development_tools"
 require "messages"
+require "reinstall"
+require "cli/parser"
+require "cleanup"
 
 module Homebrew
   module_function
 
+  def reinstall_args
+    Homebrew::CLI::Parser.new do
+      usage_banner <<~EOS
+        `reinstall` [<options>] <formula>
+
+        Uninstall and then install <formula> using the same options it was originally
+        installed with, plus any appended brew formula options.
+
+        Unless `HOMEBREW_NO_INSTALL_CLEANUP` is set, `brew cleanup` will then be run for the
+        reinstalled formulae or, every 30 days, for all formulae.
+      EOS
+      switch :debug,
+             description: "If brewing fails, open an interactive debugging session with access to IRB "\
+                          "or a shell inside the temporary build directory."
+      switch "-s", "--build-from-source",
+             description: "Compile <formula> from source even if a bottle is available."
+      switch "-i", "--interactive",
+             description: "Download and patch <formula>, then open a shell. This allows the user to "\
+                          "run `./configure --help` and otherwise determine how to turn the software "\
+                          "package into a Homebrew package."
+      switch "--force-bottle",
+             description: "Install from a bottle if it exists for the current or newest version of "\
+                          "macOS, even if it would not normally be used for installation."
+      switch "--keep-tmp",
+             description: "Retain the temporary files created during installation."
+      switch :force,
+             description: "Install without checking for previously installed keg-only or "\
+                          "non-migrated versions."
+      switch :verbose,
+             description: "Print the verification and postinstall steps."
+      switch "--display-times",
+             env:         :display_install_times,
+             description: "Print install times for each formula at the end of the run."
+      conflicts "--build-from-source", "--force-bottle"
+      formula_options
+    end
+  end
+
   def reinstall
+    reinstall_args.parse
+
+    raise FormulaUnspecifiedError if args.remaining.empty?
+
     FormulaInstaller.prevent_build_flags unless DevelopmentTools.installed?
 
-    ARGV.resolved_formulae.each do |f|
+    Install.perform_preinstall_checks
+
+    Homebrew.args.resolved_formulae.each do |f|
       if f.pinned?
         onoe "#{f.full_name} is pinned. You must unpin it to reinstall."
         next
       end
       Migrator.migrate_if_needed(f)
       reinstall_formula(f)
+      Cleanup.install_formula_clean!(f)
     end
     Homebrew.messages.display_messages
-  end
-
-  def reinstall_formula(f)
-    if f.opt_prefix.directory?
-      keg = Keg.new(f.opt_prefix.resolved_path)
-      keg_had_linked_opt = true
-      keg_was_linked = keg.linked?
-      backup keg
-    end
-
-    build_options = BuildOptions.new(Options.create(ARGV.flags_only), f.options)
-    options = build_options.used_options
-    options |= f.build.used_options
-    options &= f.options
-
-    fi = FormulaInstaller.new(f)
-    fi.options              = options
-    fi.invalid_option_names = build_options.invalid_option_names
-    fi.build_bottle         = ARGV.build_bottle? || (!f.bottled? && f.build.bottle?)
-    fi.interactive          = ARGV.interactive?
-    fi.git                  = ARGV.git?
-    fi.link_keg           ||= keg_was_linked if keg_had_linked_opt
-    fi.prelude
-
-    oh1 "Reinstalling #{Formatter.identifier(f.full_name)} #{options.to_a.join " "}"
-
-    fi.install
-    fi.finish
-  rescue FormulaInstallationAlreadyAttemptedError
-    nil
-  rescue Exception # rubocop:disable Lint/RescueException
-    ignore_interrupts { restore_backup(keg, keg_was_linked) }
-    raise
-  else
-    backup_path(keg).rmtree if backup_path(keg).exist?
-  end
-
-  def backup(keg)
-    keg.unlink
-    keg.rename backup_path(keg)
-  end
-
-  def restore_backup(keg, keg_was_linked)
-    path = backup_path(keg)
-
-    return unless path.directory?
-
-    Pathname.new(keg).rmtree if keg.exist?
-
-    path.rename keg
-    keg.link if keg_was_linked
-  end
-
-  def backup_path(path)
-    Pathname.new "#{path}.reinstall"
   end
 end

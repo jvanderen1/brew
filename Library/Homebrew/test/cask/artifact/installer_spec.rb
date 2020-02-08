@@ -1,7 +1,11 @@
-describe Hbc::Artifact::Installer, :cask do
-  let(:staged_path) { mktmpdir }
-  let(:cask) { instance_double("Cask", staged_path: staged_path, config: nil) }
+# frozen_string_literal: true
+
+describe Cask::Artifact::Installer, :cask do
   subject(:installer) { described_class.new(cask, **args) }
+
+  let(:staged_path) { mktmpdir }
+  let(:cask) { instance_double(Cask::Cask, staged_path: staged_path) }
+
   let(:command) { SystemCommand }
 
   let(:args) { {} }
@@ -13,7 +17,7 @@ describe Hbc::Artifact::Installer, :cask do
       it "shows a message prompting to run the installer manually" do
         expect {
           installer.install_phase(command: command)
-        }.to output(%r{run the installer at\s+'#{staged_path}/installer'}).to_stdout
+        }.to output(%r{run the installer at:\s+'#{staged_path}/installer'}).to_stdout
       end
     end
 
@@ -21,7 +25,7 @@ describe Hbc::Artifact::Installer, :cask do
       let(:executable) { staged_path/"executable" }
       let(:args) { { script: { executable: "executable" } } }
 
-      before(:each) do
+      before do
         FileUtils.touch executable
       end
 

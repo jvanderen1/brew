@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require "compilers"
 require "development_tools"
 
@@ -6,7 +8,7 @@ require "development_tools"
 # {Stdenv} (depending on the build mode).
 # @see Superenv
 # @see Stdenv
-# @see http://www.rubydoc.info/stdlib/Env Ruby's ENV API
+# @see https://www.rubydoc.info/stdlib/Env Ruby's ENV API
 module SharedEnvExtension
   include CompilerConstants
 
@@ -23,7 +25,7 @@ module SharedEnvExtension
     MACOSX_DEPLOYMENT_TARGET SDKROOT DEVELOPER_DIR
     CMAKE_PREFIX_PATH CMAKE_INCLUDE_PATH CMAKE_FRAMEWORK_PATH
     GOBIN GOPATH GOROOT PERL_MB_OPT PERL_MM_OPT
-    LIBRARY_PATH
+    LIBRARY_PATH LD_LIBRARY_PATH LD_PRELOAD LD_RUN_PATH
   ].freeze
 
   # @private
@@ -88,13 +90,14 @@ module SharedEnvExtension
 
   # Prepends a directory to `PATH`.
   # Is the formula struggling to find the pkgconfig file? Point it to it.
-  # This is done automatically for `keg_only` formulae.
+  # This is done automatically for keg-only formulae.
   # <pre>ENV.prepend_path "PKG_CONFIG_PATH", "#{Formula["glib"].opt_lib}/pkgconfig"</pre>
   # Prepending a system path such as /usr/bin is a no-op so that requirements
-  # don't accidentally override superenv shims or formulae's `bin` directories
-  # (e.g. <pre>ENV.prepend_path "PATH", which("emacs").dirname</pre>)
+  # don't accidentally override superenv shims or formulae's `bin` directories, e.g.
+  # <pre>ENV.prepend_path "PATH", which("emacs").dirname</pre>
   def prepend_path(key, path)
     return if %w[/usr/bin /bin /usr/sbin /sbin].include? path.to_s
+
     self[key] = PATH.new(self[key]).prepend(path)
   end
 
@@ -106,8 +109,10 @@ module SharedEnvExtension
 
   def remove(keys, value)
     return if value.nil?
+
     Array(keys).each do |key|
       next unless self[key]
+
       self[key] = self[key].sub(value, "")
       delete(key) if self[key].empty?
     end
@@ -191,7 +196,7 @@ module SharedEnvExtension
   end
 
   # Snow Leopard defines an NCURSES value the opposite of most distros.
-  # See: https://bugs.python.org/issue6848
+  # @see https://bugs.python.org/issue6848
   # Currently only used by aalib in core.
   def ncurses_define
     append "CPPFLAGS", "-DNCURSES_OPAQUE=0"
@@ -208,11 +213,9 @@ module SharedEnvExtension
     path.append(
       # user paths
       ORIGINAL_PATHS.map do |p|
-        begin
-          p.realpath.to_s
-        rescue
-          nil
-        end
+        p.realpath.to_s
+      rescue
+        nil
       end - %w[/usr/X11/bin /opt/X11/bin],
     )
     self["PATH"] = path
@@ -223,6 +226,7 @@ module SharedEnvExtension
     # building with an alternative Fortran compiler without optimization flags,
     # despite it often being the Homebrew-provided one set up in the first call.
     return if @fortran_setup_done
+
     @fortran_setup_done = true
 
     flags = []
@@ -247,9 +251,9 @@ module SharedEnvExtension
 
     else
       if (gfortran = which("gfortran", (HOMEBREW_PREFIX/"bin").to_s))
-        ohai "Using Homebrew-provided fortran compiler."
+        ohai "Using Homebrew-provided Fortran compiler."
       elsif (gfortran = which("gfortran", PATH.new(ORIGINAL_PATHS)))
-        ohai "Using a fortran compiler found at #{gfortran}."
+        ohai "Using a Fortran compiler found at #{gfortran}."
       end
       if gfortran
         puts "This may be changed by setting the FC environment variable."
@@ -262,12 +266,13 @@ module SharedEnvExtension
     set_cpu_flags(flags)
   end
 
-  # ld64 is a newer linker provided for Xcode 2.5
   # @private
-  def ld64
-    ld64 = Formulary.factory("ld64")
-    self["LD"] = ld64.bin/"ld"
-    append "LDFLAGS", "-B#{ld64.bin}/"
+  def effective_arch
+    if ARGV.build_bottle? && ARGV.bottle_arch
+      ARGV.bottle_arch
+    else
+      Hardware.oldest_cpu
+    end
   end
 
   # @private
@@ -294,6 +299,7 @@ module SharedEnvExtension
     end
 
     return if gcc_formula.opt_prefix.exist?
+
     raise <<~EOS
       The requested Homebrew GCC was not installed. You must:
         brew install #{gcc_formula.full_name}
@@ -308,13 +314,6 @@ module SharedEnvExtension
   # @private
   def compiler_any_clang?(cc = compiler)
     %w[clang llvm_clang].include?(cc.to_s)
-  end
-
-  # @private
-  def compiler_with_cxx11_support?(cc)
-    return if compiler_any_clang?(cc)
-    version = cc[/^gcc-(\d+(?:\.\d+)?)$/, 1]
-    version && Version.create(version) >= Version.create("4.8")
   end
 
   private
@@ -343,7 +342,8 @@ module SharedEnvExtension
   end
 
   def check_for_compiler_universal_support
-    return unless homebrew_cc =~ GNU_GCC_REGEXP
+    return unless homebrew_cc.match?(GNU_GCC_REGEXP)
+
     raise "Non-Apple GCC can't build universal binaries"
   end
 end

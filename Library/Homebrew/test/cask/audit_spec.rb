@@ -1,4 +1,6 @@
-describe Hbc::Audit, :cask do
+# frozen_string_literal: true
+
+describe Cask::Audit, :cask do
   def include_msg?(messages, msg)
     if msg.is_a?(Regexp)
       Array(messages).any? { |m| m =~ msg }
@@ -35,14 +37,14 @@ describe Hbc::Audit, :cask do
     end
   end
 
-  let(:cask) { instance_double(Hbc::Cask) }
+  let(:cask) { instance_double(Cask::Cask) }
   let(:download) { false }
   let(:check_token_conflicts) { false }
   let(:fake_system_command) { class_double(SystemCommand) }
   let(:audit) {
-    Hbc::Audit.new(cask, download:              download,
-                         check_token_conflicts: check_token_conflicts,
-                         command:               fake_system_command)
+    described_class.new(cask, download:              download,
+                              check_token_conflicts: check_token_conflicts,
+                              command:               fake_system_command)
   }
 
   describe "#result" do
@@ -81,7 +83,7 @@ describe Hbc::Audit, :cask do
   describe "#run!" do
     subject { audit.run! }
 
-    let(:cask) { Hbc::CaskLoader.load(cask_token) }
+    let(:cask) { Cask::CaskLoader.load(cask_token) }
 
     describe "required stanzas" do
       %w[version sha256 url name homepage].each do |stanza|
@@ -94,7 +96,7 @@ describe Hbc::Audit, :cask do
     end
 
     describe "pkg allow_untrusted checks" do
-      let(:warning_msg) { "allow_untrusted is not permitted in official Homebrew-Cask taps" }
+      let(:warning_msg) { "allow_untrusted is not permitted in official Homebrew Cask taps" }
 
       context "when the Cask has no pkg stanza" do
         let(:cask_token) { "basic-cask" }
@@ -317,22 +319,6 @@ describe Hbc::Audit, :cask do
       end
     end
 
-    describe "appcast checkpoint check" do
-      let(:error_msg) { "Appcast checkpoints have been removed from Homebrew-Cask" }
-
-      context "when the Cask does not have a checkpoint" do
-        let(:cask_token) { "with-appcast" }
-
-        it { is_expected.not_to fail_with(error_msg) }
-      end
-
-      context "when the Cask has a checkpoint" do
-        let(:cask_token) { "appcast-with-checkpoint" }
-
-        it { is_expected.to fail_with(error_msg) }
-      end
-    end
-
     describe "hosting with appcast checks" do
       let(:appcast_warning) { /please add an appcast/ }
 
@@ -410,6 +396,28 @@ describe Hbc::Audit, :cask do
         let(:cask_token) { "latest-with-appcast" }
 
         it { is_expected.to warn_with(warning_msg) }
+      end
+    end
+
+    describe "blacklist checks" do
+      context "when the Cask isn't blacklisted" do
+        let(:cask_token) { "adobe-air" }
+
+        it { is_expected.to pass }
+      end
+
+      context "when the Cask is blacklisted" do
+        context "and it's in the official Homebrew tap" do
+          let(:cask_token) { "adobe-illustrator" }
+
+          it { is_expected.to fail_with(/#{cask_token} is blacklisted: \w+/) }
+        end
+
+        context "and it isn't in the official Homebrew tap" do
+          let(:cask_token) { "pharo" }
+
+          it { is_expected.to pass }
+        end
       end
     end
 
@@ -511,14 +519,13 @@ describe Hbc::Audit, :cask do
       let(:cask_token) { "with-binary" }
       let(:check_token_conflicts) { true }
 
-      before do
-        expect(audit).to receive(:core_formula_names).and_return(formula_names)
-      end
-
       context "when cask token conflicts with a core formula" do
         let(:formula_names) { %w[with-binary other-formula] }
 
-        it { is_expected.to warn_with(/possible duplicate/) }
+        it "warns about duplicates" do
+          expect(audit).to receive(:core_formula_names).and_return(formula_names)
+          expect(subject).to warn_with(/possible duplicate/)
+        end
       end
 
       context "when cask token does not conflict with a core formula" do
@@ -530,46 +537,36 @@ describe Hbc::Audit, :cask do
 
     describe "audit of downloads" do
       let(:cask_token) { "with-binary" }
-      let(:cask) { Hbc::CaskLoader.load(cask_token) }
-      let(:download) { instance_double(Hbc::Download) }
-      let(:verify) { class_double(Hbc::Verify).as_stubbed_const }
+      let(:cask) { Cask::CaskLoader.load(cask_token) }
+      let(:download) { instance_double(Cask::Download) }
+      let(:verify) { class_double(Cask::Verify).as_stubbed_const }
       let(:error_msg) { "Download Failed" }
 
-      context "when download and verification succeed" do
-        before do
-          expect(download).to receive(:perform)
-          expect(verify).to receive(:all)
-        end
-
-        it { is_expected.not_to fail_with(/#{error_msg}/) }
+      it "when download and verification succeed it does not fail" do
+        expect(download).to receive(:perform)
+        expect(verify).to receive(:all)
+        expect(subject).not_to fail_with(/#{error_msg}/)
       end
 
-      context "when download fails" do
-        before do
-          expect(download).to receive(:perform).and_raise(StandardError.new(error_msg))
-        end
-
-        it { is_expected.to fail_with(/#{error_msg}/) }
+      it "when download fails it does not fail" do
+        expect(download).to receive(:perform).and_raise(StandardError.new(error_msg))
+        expect(subject).to fail_with(/#{error_msg}/)
       end
 
-      context "when verification fails" do
-        before do
-          expect(download).to receive(:perform)
-          expect(verify).to receive(:all).and_raise(StandardError.new(error_msg))
-        end
-
-        it { is_expected.to fail_with(/#{error_msg}/) }
+      it "when verification fails it does not fail" do
+        expect(download).to receive(:perform)
+        expect(verify).to receive(:all).and_raise(StandardError.new(error_msg))
+        expect(subject).to fail_with(/#{error_msg}/)
       end
     end
 
     context "when an exception is raised" do
-      let(:cask) { instance_double(Hbc::Cask) }
+      let(:cask) { instance_double(Cask::Cask) }
 
-      before do
-        expect(cask).to receive(:version).and_raise(StandardError.new)
+      it "fails the audit" do
+        expect(cask).to receive(:tap).and_raise(StandardError.new)
+        expect(subject).to fail_with(/exception while auditing/)
       end
-
-      it { is_expected.to fail_with(/exception while auditing/) }
     end
   end
 end

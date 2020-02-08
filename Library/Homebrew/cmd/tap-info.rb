@@ -1,33 +1,43 @@
-#:  * `tap-info`:
-#:    Display a brief summary of all installed taps.
-#:
-#:  * `tap-info` (`--installed`|<taps>):
-#:    Display detailed information about one or more <taps>.
-#:
-#:    Pass `--installed` to display information on all installed taps.
-#:
-#:  * `tap-info` `--json=`<version> (`--installed`|<taps>):
-#:    Print a JSON representation of <taps>. Currently the only accepted value
-#:    for <version> is `v1`.
-#:
-#:    Pass `--installed` to get information on installed taps.
-#:
-#:    See the docs for examples of using the JSON output:
-#:    <https://docs.brew.sh/Querying-Brew>
+# frozen_string_literal: true
+
+require "cli/parser"
 
 module Homebrew
   module_function
 
+  def tap_info_args
+    Homebrew::CLI::Parser.new do
+      usage_banner <<~EOS
+        `tap-info` [<options>] [<tap>]
+
+        Show detailed information about one or more <tap>s.
+
+        If no <tap> names are provided, display brief statistics for all installed taps.
+      EOS
+      switch "--installed",
+             description: "Show information on each installed tap."
+      flag   "--json",
+             description: "Print a JSON representation of <tap>. Currently the default and only accepted "\
+                          "value for <version> is `v1`. See the docs for examples of using the JSON "\
+                          "output: <https://docs.brew.sh/Querying-Brew>"
+      switch :debug
+    end
+  end
+
   def tap_info
-    if ARGV.include? "--installed"
+    tap_info_args.parse
+
+    if args.installed?
       taps = Tap
     else
-      taps = ARGV.named.sort.map do |name|
+      taps = Homebrew.args.named.sort.map do |name|
         Tap.fetch(name)
       end
     end
 
-    if ARGV.json == "v1"
+    if args.json
+      raise UsageError, "Invalid JSON version: #{args.json}" unless ["v1", true].include? args.json
+
       print_tap_json(taps.sort_by(&:to_s))
     else
       print_tap_info(taps.sort_by(&:to_s))
@@ -48,12 +58,12 @@ module Homebrew
         pinned_count += 1 if tap.pinned?
         private_count += 1 if tap.private?
       end
-      info = Formatter.pluralize(tap_count, "tap").to_s
+      info = "#{tap_count} #{"tap".pluralize(tap_count)}"
       info += ", #{pinned_count} pinned"
       info += ", #{private_count} private"
-      info += ", #{Formatter.pluralize(formula_count, "formula")}"
-      info += ", #{Formatter.pluralize(command_count, "command")}"
-      info += ", #{Tap::TAP_DIRECTORY.abv}" if Tap::TAP_DIRECTORY.directory?
+      info += ", #{formula_count} #{"formula".pluralize(formula_count)}"
+      info += ", #{command_count} #{"command".pluralize(command_count)}"
+      info += ", #{Tap::TAP_DIRECTORY.dup.abv}" if Tap::TAP_DIRECTORY.directory?
       puts info
     else
       taps.each_with_index do |tap, i|

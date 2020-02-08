@@ -1,5 +1,7 @@
-describe Hbc::Artifact::Zap, :cask do
-  let(:cask) { Hbc::CaskLoader.load(cask_path("with-installable")) }
+# frozen_string_literal: true
+
+describe Cask::Artifact::Zap, :cask do
+  let(:cask) { Cask::CaskLoader.load(cask_path("with-installable")) }
 
   let(:zap_artifact) {
     cask.artifacts.find { |a| a.is_a?(described_class) }

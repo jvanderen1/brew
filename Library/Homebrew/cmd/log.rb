@@ -1,13 +1,34 @@
-#:  * `log` [<git-log-options>] <formula> ...:
-#:    Show the git log for the given formulae. Options that `git-log`(1)
-#:    recognizes can be passed before the formula list.
+# frozen_string_literal: true
 
 require "formula"
+require "cli/parser"
 
 module Homebrew
   module_function
 
+  def log_args
+    Homebrew::CLI::Parser.new do
+      usage_banner <<~EOS
+        `log` [<options>] [<formula>]
+
+        Show the `git log` for <formula>, or show the log for the Homebrew repository
+        if no formula is provided.
+      EOS
+      switch "-p", "-u", "--patch",
+             description: "Also print patch from commit."
+      switch "--stat",
+             description: "Also print diffstat from commit."
+      switch "--oneline",
+             description: "Print only one line per commit."
+      flag   "-1", "--max-count",
+             description: "Print only one or a specified number of commits."
+      max_named 1
+    end
+  end
+
   def log
+    log_args.parse
+
     if ARGV.named.empty?
       git_log HOMEBREW_REPOSITORY
     else
@@ -37,8 +58,8 @@ module Homebrew
           git -C "#{git_cd}" fetch --unshallow
       EOS
     end
-    args = ARGV.options_only
+    args = Homebrew.args.options_only
     args += ["--follow", "--", path] unless path.nil?
-    exec "git", "log", *args
+    system "git", "log", *args
   end
 end

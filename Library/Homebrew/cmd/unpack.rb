@@ -1,25 +1,41 @@
-#:  * `unpack` [`--git`|`--patch`] [`--destdir=`<path>] <formulae>:
-#:    Unpack the source files for <formulae> into subdirectories of the current
-#:    working directory. If `--destdir=`<path> is given, the subdirectories will
-#:    be created in the directory named by <path> instead.
-#:
-#:    If `--patch` is passed, patches for <formulae> will be applied to the
-#:    unpacked source.
-#:
-#:    If `--git` (or `-g`) is passed, a Git repository will be initialized in the unpacked
-#:    source. This is useful for creating patches for the software.
+# frozen_string_literal: true
 
 require "stringio"
 require "formula"
+require "cli/parser"
 
 module Homebrew
   module_function
 
+  def unpack_args
+    Homebrew::CLI::Parser.new do
+      usage_banner <<~EOS
+        `unpack` [<options>] <formula>
+
+        Unpack the source files for <formula> into subdirectories of the current
+        working directory.
+      EOS
+      flag   "--destdir=",
+             description: "Create subdirectories in the directory named by <path> instead."
+      switch "--patch",
+             description: "Patches for <formula> will be applied to the unpacked source."
+      switch "-g", "--git",
+             description: "Initialise a Git repository in the unpacked source. This is useful for creating "\
+                          "patches for the software."
+      switch :force
+      switch :verbose
+      switch :debug
+      conflicts "--git", "--patch"
+    end
+  end
+
   def unpack
-    formulae = ARGV.formulae
+    unpack_args.parse
+
+    formulae = Homebrew.args.formulae
     raise FormulaUnspecifiedError if formulae.empty?
 
-    if dir = ARGV.value("destdir")
+    if dir = args.destdir
       unpack_dir = Pathname.new(dir).expand_path
       unpack_dir.mkpath
     else
@@ -32,7 +48,8 @@ module Homebrew
       stage_dir = unpack_dir/"#{f.name}-#{f.version}"
 
       if stage_dir.exist?
-        raise "Destination #{stage_dir} already exists!" unless ARGV.force?
+        raise "Destination #{stage_dir} already exists!" unless args.force?
+
         rm_rf stage_dir
       end
 
@@ -40,12 +57,13 @@ module Homebrew
 
       ENV["VERBOSE"] = "1" # show messages about tar
       f.brew do
-        f.patch if ARGV.flag?("--patch")
+        f.patch if args.patch?
         cp_r getwd, stage_dir, preserve: true
       end
       ENV["VERBOSE"] = nil
 
-      next unless ARGV.git?
+      next unless args.git?
+
       ohai "Setting up git repository"
       cd stage_dir
       system "git", "init", "-q"

@@ -1,10 +1,36 @@
+# frozen_string_literal: true
+
 if ENV["HOMEBREW_TESTS_COVERAGE"]
   require "simplecov"
 
-  if ENV["CODECOV_TOKEN"] || ENV["TRAVIS"]
-    require "codecov"
-    SimpleCov.formatter = SimpleCov::Formatter::Codecov
+  formatters = [SimpleCov::Formatter::HTMLFormatter]
+  if ENV["HOMEBREW_COVERALLS_REPO_TOKEN"] && RUBY_PLATFORM[/darwin/]
+    require "coveralls"
+
+    Coveralls::Output.no_color if !ENV["HOMEBREW_COLOR"] && (ENV["HOMEBREW_NO_COLOR"] || !$stdout.tty?)
+
+    formatters << Coveralls::SimpleCov::Formatter
+
+    if ENV["TEST_ENV_NUMBER"]
+      SimpleCov.at_exit do
+        result = SimpleCov.result
+        result.format! if ParallelTests.number_of_running_processes <= 1
+      end
+    end
+
+    ENV["CI_NAME"] = ENV["HOMEBREW_CI_NAME"]
+    ENV["COVERALLS_REPO_TOKEN"] = ENV["HOMEBREW_COVERALLS_REPO_TOKEN"]
+
+    ENV["CI_BUILD_NUMBER"] = ENV["HOMEBREW_CI_BUILD_NUMBER"]
+    ENV["CI_BRANCH"] = ENV["HOMEBREW_CI_BRANCH"]
+    %r{refs/pull/(?<pr>\d+)/merge} =~ ENV["HOMEBREW_CI_BUILD_NUMBER"]
+    ENV["CI_PULL_REQUEST"] = pr
+    ENV["CI_BUILD_URL"] = "https://github.com/#{ENV["HOMEBREW_GITHUB_REPOSITORY"]}/pull/#{pr}/checks"
+
+    ENV["CI_JOB_ID"] = ENV["TEST_ENV_NUMBER"] || "1"
   end
+
+  SimpleCov.formatters = SimpleCov::Formatter::MultiFormatter.new(formatters)
 end
 
 require "rspec/its"
@@ -32,7 +58,7 @@ TEST_DIRECTORIES = [
   HOMEBREW_CACHE,
   HOMEBREW_CACHE_FORMULA,
   HOMEBREW_CELLAR,
-  HOMEBREW_LOCK_DIR,
+  HOMEBREW_LOCKS,
   HOMEBREW_LOGS,
   HOMEBREW_TEMP,
 ].freeze
@@ -44,13 +70,11 @@ RSpec.configure do |config|
 
   config.filter_run_when_matching :focus
 
-  config.silence_filter_announcements = true
+  config.silence_filter_announcements = true if ENV["TEST_ENV_NUMBER"]
 
-  # TODO: when https://github.com/rspec/rspec-expectations/pull/1056
-  #       makes it into a stable release:
-  # config.expect_with :rspec do |c|
-  #   c.max_formatted_output_length = 200
-  # end
+  config.expect_with :rspec do |c|
+    c.max_formatted_output_length = 200
+  end
 
   # Never truncate output objects.
   RSpec::Support::ObjectFormatter.default_instance.max_formatted_output_length = nil
@@ -72,8 +96,22 @@ RSpec.configure do |config|
     skip "Needs official command Taps." unless ENV["HOMEBREW_TEST_OFFICIAL_CMD_TAPS"]
   end
 
+  config.before(:each, :needs_linux) do
+    skip "Not on Linux." unless OS.linux?
+  end
+
   config.before(:each, :needs_macos) do
     skip "Not on macOS." unless OS.mac?
+  end
+
+  config.before(:each, :needs_java) do
+    java_installed = if OS.mac?
+      Utils.popen_read("/usr/libexec/java_home", "--failfast")
+      $CHILD_STATUS.success?
+    else
+      which("java")
+    end
+    skip "Java not installed." unless java_installed
   end
 
   config.before(:each, :needs_python) do
@@ -84,11 +122,31 @@ RSpec.configure do |config|
     skip "Requires network connection." unless ENV["HOMEBREW_TEST_ONLINE"]
   end
 
-  config.before(:each, :needs_svn) do
-    skip "Requires subversion." unless which "svn"
+  config.around(:each, :needs_network) do |example|
+    example.run_with_retry retry: 3, retry_wait: 1
   end
 
-  config.around(:each) do |example|
+  config.before(:each, :needs_svn) do
+    svn_paths = PATH.new(ENV["PATH"])
+    if OS.mac?
+      xcrun_svn = Utils.popen_read("xcrun", "-f", "svn")
+      svn_paths.append(File.dirname(xcrun_svn)) if $CHILD_STATUS.success? && xcrun_svn.present?
+    end
+
+    svn = which("svn", svn_paths)
+    svnadmin = which("svnadmin", svn_paths)
+    skip "subversion not installed." if !svn || !svnadmin
+
+    ENV["PATH"] = PATH.new(ENV["PATH"])
+                      .append(svn.dirname)
+                      .append(svnadmin.dirname)
+  end
+
+  config.before(:each, :needs_unzip) do
+    skip "unzip not installed." unless which("unzip")
+  end
+
+  config.around do |example|
     def find_files
       Find.find(TEST_TMPDIR)
           .reject { |f| File.basename(f) == ".DS_Store" }
@@ -96,7 +154,15 @@ RSpec.configure do |config|
     end
 
     begin
+      Homebrew.raise_deprecation_exceptions = true
+
+      Formulary.clear_cache
       Tap.clear_cache
+      DependencyCollector.clear_cache
+      Formula.clear_cache
+      Keg.clear_cache
+      Tab.clear_cache
+      FormulaInstaller.clear_attempted
 
       TEST_DIRECTORIES.each(&:mkpath)
 
@@ -126,18 +192,21 @@ RSpec.configure do |config|
         @__stderr.close
       end
 
+      Formulary.clear_cache
+      Tap.clear_cache
+      DependencyCollector.clear_cache
+      Formula.clear_cache
+      Keg.clear_cache
       Tab.clear_cache
 
       FileUtils.rm_rf [
         TEST_DIRECTORIES.map(&:children),
+        *Keg::MUST_EXIST_SUBDIRECTORIES,
         HOMEBREW_LINKED_KEGS,
         HOMEBREW_PINNED_KEGS,
-        HOMEBREW_PREFIX/".git",
-        HOMEBREW_PREFIX/"bin",
-        HOMEBREW_PREFIX/"etc",
-        HOMEBREW_PREFIX/"share",
-        HOMEBREW_PREFIX/"opt",
+        HOMEBREW_PREFIX/"var",
         HOMEBREW_PREFIX/"Caskroom",
+        HOMEBREW_PREFIX/"Frameworks",
         HOMEBREW_LIBRARY/"Taps/homebrew/homebrew-cask",
         HOMEBREW_LIBRARY/"Taps/homebrew/homebrew-bar",
         HOMEBREW_LIBRARY/"Taps/homebrew/homebrew-bundle",
@@ -149,6 +218,7 @@ RSpec.configure do |config|
         CoreTap.instance.path/".git",
         CoreTap.instance.alias_dir,
         CoreTap.instance.path/"formula_renames.json",
+        *Pathname.glob("#{HOMEBREW_CELLAR}/*/"),
       ]
 
       files_after_test = find_files
@@ -167,3 +237,12 @@ end
 RSpec::Matchers.define_negated_matcher :not_to_output, :output
 RSpec::Matchers.alias_matcher :have_failed, :be_failed
 RSpec::Matchers.alias_matcher :a_string_containing, :include
+
+RSpec::Matchers.define :a_json_string do
+  match do |actual|
+    JSON.parse(actual)
+    true
+  rescue JSON::ParserError
+    false
+  end
+end

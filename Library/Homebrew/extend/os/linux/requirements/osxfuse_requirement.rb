@@ -1,10 +1,13 @@
+# frozen_string_literal: true
+
 require "requirement"
 
 class OsxfuseRequirement < Requirement
   download "https://github.com/libfuse/libfuse"
 
   satisfy(build_env: false) do
-    next true if libfuse_formula_exists? && Formula["libfuse"].installed?
+    next true if libfuse_formula_exists? && Formula["libfuse"].latest_version_installed?
+
     includedirs = %w[
       /usr/include
       /usr/local/include
@@ -12,6 +15,7 @@ class OsxfuseRequirement < Requirement
     next true if (includedirs.map do |dir|
       File.exist? "#{dir}/fuse.h"
     end).any?
+
     false
   end
 
@@ -19,7 +23,7 @@ class OsxfuseRequirement < Requirement
     msg = "libfuse is required to install this formula.\n"
     if libfuse_formula_exists?
       msg + <<~EOS
-        Run "brew install libfuse" to install it.
+        Run `brew install libfuse` to install it.
       EOS
     else
       msg + super

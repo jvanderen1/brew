@@ -1,9 +1,11 @@
+# frozen_string_literal: true
+
 require "extend/string"
 require "tempfile"
 require "utils/inreplace"
 
 describe StringInreplaceExtension do
-  subject { string.extend(described_class) }
+  subject { string.dup.extend(described_class) }
 
   describe "#change_make_var!" do
     context "flag" do
@@ -197,7 +199,7 @@ describe StringInreplaceExtension do
   describe "#sub!" do
     let(:string) { "foo" }
 
-    it "replaces the first occurence" do
+    it "replaces the first occurrence" do
       subject.sub!("o", "e")
       expect(subject).to eq("feo")
     end
@@ -206,7 +208,7 @@ describe StringInreplaceExtension do
   describe "#gsub!" do
     let(:string) { "foo" }
 
-    it "replaces the all occurences" do
+    it "replaces all occurrences" do
       subject.gsub!("o", "e") # rubocop:disable Performance/StringReplacement
       expect(subject).to eq("fee")
     end
@@ -226,13 +228,19 @@ describe Utils::Inreplace do
 
   after { file.unlink }
 
+  it "raises error if there are no files given to replace" do
+    expect {
+      described_class.inreplace [], "d", "f"
+    }.to raise_error(Utils::InreplaceError)
+  end
+
   it "raises error if there is nothing to replace" do
     expect {
       described_class.inreplace file.path, "d", "f"
     }.to raise_error(Utils::InreplaceError)
   end
 
-  it "raises error if there is nothing to replace" do
+  it "raises error if there is nothing to replace in block form" do
     expect {
       described_class.inreplace(file.path) do |s|
         s.gsub!("d", "f") # rubocop:disable Performance/StringReplacement
@@ -240,7 +248,7 @@ describe Utils::Inreplace do
     }.to raise_error(Utils::InreplaceError)
   end
 
-  it "raises error if there is nothing to replace" do
+  it "raises error if there is no make variables to replace" do
     expect {
       described_class.inreplace(file.path) do |s|
         s.change_make_var! "VAR", "value"

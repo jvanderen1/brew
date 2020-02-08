@@ -1,19 +1,34 @@
-#:  * `sh` [`--env=std`]:
-#:    Start a Homebrew build environment shell. Uses our years-battle-hardened
-#:    Homebrew build logic to help your `./configure && make && make install`
-#:    or even your `gem install` succeed. Especially handy if you run Homebrew
-#:    in an Xcode-only configuration since it adds tools like `make` to your `PATH`
-#:    which otherwise build systems would not find.
-#:
-#:    If `--env=std` is passed, use the standard `PATH` instead of superenv's.
+# frozen_string_literal: true
 
 require "extend/ENV"
 require "formula"
+require "cli/parser"
 
 module Homebrew
   module_function
 
+  def sh_args
+    Homebrew::CLI::Parser.new do
+      usage_banner <<~EOS
+        `sh` [<options>]
+
+        Start a Homebrew build environment shell. Uses our years-battle-hardened
+        Homebrew build logic to help your `./configure && make && make install`
+        or even your `gem install` succeed. Especially handy if you run Homebrew
+        in an Xcode-only configuration since it adds tools like `make` to your `PATH`
+        which build systems would not find otherwise.
+      EOS
+      flag   "--env=",
+             description: "Use the standard `PATH` instead of superenv's when `std` is passed."
+      switch :verbose
+      switch :debug
+      max_named 0
+    end
+  end
+
   def sh
+    sh_args.parse
+
     ENV.activate_extensions!
 
     if superenv?
@@ -37,9 +52,9 @@ module Homebrew
       gem and pip will ignore our configuration and insist on using the
       environment they were built under (mostly). Sadly, scons will also
       ignore our configuration.
-      When done, type `exit'.
+      When done, type `exit`.
     EOS
     $stdout.flush
-    exec ENV["SHELL"]
+    safe_system ENV["SHELL"]
   end
 end

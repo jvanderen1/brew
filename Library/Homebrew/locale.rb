@@ -1,19 +1,19 @@
+# frozen_string_literal: true
+
 class Locale
   class ParserError < StandardError
   end
 
-  LANGUAGE_REGEX = /(?:[a-z]{2,3})/     # ISO 639-1 or ISO 639-2
-  REGION_REGEX   = /(?:[A-Z]{2}|\d{3})/ # ISO 3166-1 or UN M.49
-  SCRIPT_REGEX   = /(?:[A-Z][a-z]{3})/  # ISO 15924
+  LANGUAGE_REGEX = /(?:[a-z]{2,3})/.freeze     # ISO 639-1 or ISO 639-2
+  REGION_REGEX   = /(?:[A-Z]{2}|\d{3})/.freeze # ISO 3166-1 or UN M.49
+  SCRIPT_REGEX   = /(?:[A-Z][a-z]{3})/.freeze  # ISO 15924
 
-  LOCALE_REGEX = /\A((?:#{LANGUAGE_REGEX}|#{REGION_REGEX}|#{SCRIPT_REGEX})(?:\-|$)){1,3}\Z/
+  LOCALE_REGEX = /\A((?:#{LANGUAGE_REGEX}|#{REGION_REGEX}|#{SCRIPT_REGEX})(?:\-|$)){1,3}\Z/.freeze
 
   def self.parse(string)
     string = string.to_s
 
-    if string !~ LOCALE_REGEX
-      raise ParserError, "'#{string}' cannot be parsed to a #{self}"
-    end
+    raise ParserError, "'#{string}' cannot be parsed to a #{self}" unless string.match?(LOCALE_REGEX)
 
     scan = proc do |regex|
       string.scan(/(?:\-|^)(#{regex})(?:\-|$)/).flatten.first
@@ -29,9 +29,7 @@ class Locale
   attr_reader :language, :region, :script
 
   def initialize(language, region, script)
-    if language.nil? && region.nil? && script.nil?
-      raise ArgumentError, "#{self.class} cannot be empty"
-    end
+    raise ArgumentError, "#{self.class} cannot be empty" if language.nil? && region.nil? && script.nil?
 
     {
       language: language,
@@ -41,7 +39,8 @@ class Locale
       next if value.nil?
 
       regex = self.class.const_get("#{key.upcase}_REGEX")
-      raise ParserError, "'#{value}' does not match #{regex}" unless value =~ regex
+      raise ParserError, "'#{value}' does not match #{regex}" unless value&.match?(regex)
+
       instance_variable_set(:"@#{key}", value)
     end
   end
@@ -69,8 +68,8 @@ class Locale
   alias == eql?
 
   def detect(locale_groups)
-    locale_groups.detect { |locales| locales.any? { |locale| eql?(locale) } } ||
-      locale_groups.detect { |locales| locales.any? { |locale| include?(locale) } }
+    locale_groups.find { |locales| locales.any? { |locale| eql?(locale) } } ||
+      locale_groups.find { |locales| locales.any? { |locale| include?(locale) } }
   end
 
   def to_s

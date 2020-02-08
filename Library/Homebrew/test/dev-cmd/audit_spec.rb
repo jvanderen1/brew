@@ -1,5 +1,12 @@
+# frozen_string_literal: true
+
 require "dev-cmd/audit"
 require "formulary"
+require "cmd/shared_examples/args_parse"
+
+describe "Homebrew.audit_args" do
+  it_behaves_like "parseable arguments"
+end
 
 module Count
   def self.increment
@@ -31,7 +38,7 @@ module Homebrew
 
     specify "simple valid Formula" do
       ft = formula_text "valid", <<~RUBY
-        url "http://www.example.com/valid-1.0.tar.gz"
+        url "https://www.brew.sh/valid-1.0.tar.gz"
       RUBY
 
       expect(ft).not_to have_data
@@ -80,7 +87,7 @@ module Homebrew
       it "is empty by default" do
         fa = formula_auditor "foo", <<~RUBY
           class Foo < Formula
-            url "http://example.com/foo-1.0.tgz"
+            url "https://brew.sh/foo-1.0.tgz"
           end
         RUBY
 
@@ -94,7 +101,7 @@ module Homebrew
 
         fa = formula_auditor "foo", <<~RUBY
           class Foo < Formula
-            url "http://example.com/foo-1.0.tgz"
+            url "https://brew.sh/foo-1.0.tgz"
           end
         RUBY
 
@@ -109,7 +116,7 @@ module Homebrew
       specify "DATA but no __END__" do
         fa = formula_auditor "foo", <<~RUBY
           class Foo < Formula
-            url "http://example.com/foo-1.0.tgz"
+            url "https://brew.sh/foo-1.0.tgz"
             patch :DATA
           end
         RUBY
@@ -121,7 +128,7 @@ module Homebrew
       specify "__END__ but no DATA" do
         fa = formula_auditor "foo", <<~RUBY
           class Foo < Formula
-            url "http://example.com/foo-1.0.tgz"
+            url "https://brew.sh/foo-1.0.tgz"
           end
           __END__
           a patch goes here
@@ -141,8 +148,8 @@ module Homebrew
       specify "no issue" do
         fa = formula_auditor "foo", <<~RUBY
           class Foo < Formula
-            url "http://example.com/foo-1.0.tgz"
-            homepage "http://example.com"
+            url "https://brew.sh/foo-1.0.tgz"
+            homepage "https://brew.sh"
           end
         RUBY
 
@@ -155,7 +162,7 @@ module Homebrew
       specify "pkgshare" do
         fa = formula_auditor "foo", <<~RUBY, strict: true
           class Foo < Formula
-            url "http://example.com/foo-1.0.tgz"
+            url "https://brew.sh/foo-1.0.tgz"
           end
         RUBY
 
@@ -188,7 +195,7 @@ module Homebrew
         fa = formula_auditor "foolibc++", <<~RUBY, strict: true
           class Foolibcxx < Formula
             desc "foolibc++ is a test"
-            url "http://example.com/foo-1.0.tgz"
+            url "https://brew.sh/foo-1.0.tgz"
           end
         RUBY
 
@@ -209,11 +216,39 @@ module Homebrew
         fa = formula_auditor "foo", <<~RUBY, strict: true, online: true
           class Foo < Formula
             homepage "https://github.com/example/example"
-            url "http://example.com/foo-1.0.tgz"
+            url "https://brew.sh/foo-1.0.tgz"
           end
         RUBY
 
         fa.audit_github_repository
+        expect(fa.problems).to eq([])
+      end
+    end
+
+    describe "#audit_gitlab_repository" do
+      specify "#audit_gitlab_repository for stars, forks and creation date" do
+        fa = formula_auditor "foo", <<~RUBY, strict: true, online: true
+          class Foo < Formula
+            homepage "https://gitlab.com/libtiff/libtiff"
+            url "https://brew.sh/foo-1.0.tgz"
+          end
+        RUBY
+
+        fa.audit_gitlab_repository
+        expect(fa.problems).to eq([])
+      end
+    end
+
+    describe "#audit_bitbucket_repository" do
+      specify "#audit_bitbucket_repository for stars, forks and creation date" do
+        fa = formula_auditor "foo", <<~RUBY, strict: true, online: true
+          class Foo < Formula
+            homepage "https://bitbucket.com/libtiff/libtiff"
+            url "https://brew.sh/foo-1.0.tgz"
+          end
+        RUBY
+
+        fa.audit_bitbucket_repository
         expect(fa.problems).to eq([])
       end
     end
@@ -226,8 +261,8 @@ module Homebrew
           let(:fa) do
             formula_auditor "foo", <<~RUBY, new_formula: true
               class Foo < Formula
-                url "http://example.com/foo-1.0.tgz"
-                homepage "http://example.com"
+                url "https://brew.sh/foo-1.0.tgz"
+                homepage "https://brew.sh"
 
                 depends_on "openssl"
               end
@@ -236,8 +271,8 @@ module Homebrew
 
           let(:f_openssl) do
             formula do
-              url "http://example.com/openssl-1.0.tgz"
-              homepage "http://example.com"
+              url "https://brew.sh/openssl-1.0.tgz"
+              homepage "https://brew.sh"
 
               keg_only :provided_by_macos
             end
@@ -252,14 +287,14 @@ module Homebrew
           its(:problems) { are_expected.to be_empty }
         end
 
-        describe "which is not whitelisted" do
+        describe "which is not whitelisted", :needs_macos do
           subject { fa }
 
           let(:fa) do
             formula_auditor "foo", <<~RUBY, new_formula: true
               class Foo < Formula
-                url "http://example.com/foo-1.0.tgz"
-                homepage "http://example.com"
+                url "https://brew.sh/foo-1.0.tgz"
+                homepage "https://brew.sh"
 
                 depends_on "bc"
               end
@@ -268,8 +303,8 @@ module Homebrew
 
           let(:f_bc) do
             formula do
-              url "http://example.com/bc-1.0.tgz"
-              homepage "http://example.com"
+              url "https://brew.sh/bc-1.0.tgz"
+              homepage "https://brew.sh"
 
               keg_only :provided_by_macos
             end
@@ -281,7 +316,7 @@ module Homebrew
             fa.audit_deps
           end
 
-          its(:new_formula_problems) { are_expected.to match([/unnecessary/]) }
+          its(:new_formula_problems) { are_expected.to match([/is provided by macOS/]) }
         end
       end
     end
@@ -290,7 +325,7 @@ module Homebrew
       specify "keg_only_needs_downcasing" do
         fa = formula_auditor "foo", <<~RUBY, strict: true
           class Foo < Formula
-            url "http://example.com/foo-1.0.tgz"
+            url "https://brew.sh/foo-1.0.tgz"
 
             keg_only "Because why not"
           end
@@ -304,7 +339,7 @@ module Homebrew
       specify "keg_only_redundant_period" do
         fa = formula_auditor "foo", <<~RUBY, strict: true
           class Foo < Formula
-            url "http://example.com/foo-1.0.tgz"
+            url "https://brew.sh/foo-1.0.tgz"
 
             keg_only "because this line ends in a period."
           end
@@ -318,7 +353,7 @@ module Homebrew
       specify "keg_only_handles_block_correctly" do
         fa = formula_auditor "foo", <<~RUBY, strict: true
           class Foo < Formula
-            url "http://example.com/foo-1.0.tgz"
+            url "https://brew.sh/foo-1.0.tgz"
 
             keg_only <<~EOF
               this line starts with a lowercase word.
@@ -337,7 +372,7 @@ module Homebrew
       specify "keg_only_handles_whitelist_correctly" do
         fa = formula_auditor "foo", <<~RUBY, strict: true
           class Foo < Formula
-            url "http://example.com/foo-1.0.tgz"
+            url "https://brew.sh/foo-1.0.tgz"
 
             keg_only "Apple ships foo in the CLT package"
           end
@@ -366,7 +401,7 @@ module Homebrew
       before do
         origin_formula_path.write <<~RUBY
           class Foo#{foo_version} < Formula
-            url "https://example.com/foo-1.0.tar.gz"
+            url "https://brew.sh/foo-1.0.tar.gz"
             revision 2
             version_scheme 1
           end
@@ -523,79 +558,45 @@ module Homebrew
       end
     end
 
-    describe "#audit_url_is_not_binary" do
-      specify "it detects a url containing darwin and x86_64" do
-        fa = formula_auditor "foo", <<~RUBY, official_tap: true
-          class Foo < Formula
-            url "https://example.com/example-darwin.x86_64.tar.gz"
+    describe "#audit_versioned_keg_only" do
+      specify "it warns when a versioned formula is not `keg_only`" do
+        fa = formula_auditor "foo@1.1", <<~RUBY, core_tap: true
+          class FooAT11 < Formula
+            url "https://brew.sh/foo-1.1.tgz"
           end
         RUBY
 
-        fa.audit_url_is_not_binary
+        fa.audit_versioned_keg_only
 
         expect(fa.problems.first)
-          .to match("looks like a binary package, not a source archive. Official taps are source-only.")
+          .to match("Versioned formulae in homebrew/core should use `keg_only :versioned_formula`")
       end
 
-      specify "it detects a url containing darwin and amd64" do
-        fa = formula_auditor "foo", <<~RUBY, official_tap: true
-          class Foo < Formula
-            url "https://example.com/example-darwin.amd64.tar.gz"
+      specify "it warns when a versioned formula has an incorrect `keg_only` reason" do
+        fa = formula_auditor "foo@1.1", <<~RUBY, core_tap: true
+          class FooAT11 < Formula
+            url "https://brew.sh/foo-1.1.tgz"
+
+            keg_only :provided_by_macos
           end
         RUBY
 
-        fa.audit_url_is_not_binary
+        fa.audit_versioned_keg_only
 
         expect(fa.problems.first)
-          .to match("looks like a binary package, not a source archive. Official taps are source-only.")
+          .to match("Versioned formulae in homebrew/core should use `keg_only :versioned_formula`")
       end
 
-      specify "it works on the devel spec" do
-        fa = formula_auditor "foo", <<~RUBY, official_tap: true
-          class Foo < Formula
-            url "https://example.com/valid-1.0.tar.gz"
+      specify "it does not warn when a versioned formula has `keg_only :versioned_formula`" do
+        fa = formula_auditor "foo@1.1", <<~RUBY, core_tap: true
+          class FooAT11 < Formula
+            url "https://brew.sh/foo-1.1.tgz"
 
-            devel do
-              url "https://example.com/example-darwin.x86_64.tar.gz"
-            end
+            keg_only :versioned_formula
           end
         RUBY
 
-        fa.audit_url_is_not_binary
-
-        expect(fa.problems.first)
-          .to match("looks like a binary package, not a source archive. Official taps are source-only.")
-      end
-
-      specify "it works on the head spec" do
-        fa = formula_auditor "foo", <<~RUBY, official_tap: true
-          class Foo < Formula
-            url "https://example.com/valid-1.0.tar.gz"
-
-            head do
-              url "https://example.com/example-darwin.x86_64.tar.gz"
-            end
-          end
-        RUBY
-
-        fa.audit_url_is_not_binary
-
-        expect(fa.problems.first)
-          .to match("looks like a binary package, not a source archive. Official taps are source-only.")
-      end
-
-      specify "it ignores resource urls" do
-        fa = formula_auditor "foo", <<~RUBY, official_tap: true
-          class Foo < Formula
-            url "https://example.com/valid-1.0.tar.gz"
-
-            resource "binary_res" do
-              url "https://example.com/example-darwin.x86_64.tar.gz"
-            end
-          end
-        RUBY
-
-        fa.audit_url_is_not_binary
+        fa.audit_versioned_keg_only
 
         expect(fa.problems).to eq([])
       end

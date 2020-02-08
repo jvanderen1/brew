@@ -1,24 +1,52 @@
+# frozen_string_literal: true
+
 require "system_command"
 
 describe SystemCommand::Result do
-  describe "#to_ary" do
-    subject(:result) {
-      described_class.new([], "output", "error", instance_double(Process::Status, exitstatus: 0, success?: true))
-    }
+  subject(:result) {
+    described_class.new([], output_array, instance_double(Process::Status, exitstatus: 0, success?: true),
+                        secrets: [])
+  }
 
+  let(:output_array) {
+    [
+      [:stdout, "output\n"],
+      [:stderr, "error\n"],
+    ]
+  }
+
+  describe "#to_ary" do
     it "can be destructed like `Open3.capture3`" do
       out, err, status = result
 
-      expect(out).to eq "output"
-      expect(err).to eq "error"
+      expect(out).to eq "output\n"
+      expect(err).to eq "error\n"
       expect(status).to be_a_success
     end
   end
 
-  describe "#plist" do
-    subject { described_class.new(command, stdout, "", instance_double(Process::Status, exitstatus: 0)).plist }
+  describe "#stdout" do
+    it "returns the standard output" do
+      expect(result.stdout).to eq "output\n"
+    end
+  end
 
-    let(:command) { ["true"] }
+  describe "#stderr" do
+    it "returns the standard error output" do
+      expect(result.stderr).to eq "error\n"
+    end
+  end
+
+  describe "#merged_output" do
+    it "returns the combined standard and standard error output" do
+      expect(result.merged_output).to eq "output\nerror\n"
+    end
+  end
+
+  describe "#plist" do
+    subject { result.plist }
+
+    let(:output_array) { [[:stdout, stdout]] }
     let(:garbage) {
       <<~EOS
         Hello there! I am in no way XML am I?!?!
@@ -91,8 +119,8 @@ describe SystemCommand::Result do
       end
 
       context "when verbose" do
-        before(:each) do
-          allow(ARGV).to receive(:verbose?).and_return(true)
+        before do
+          allow(Homebrew).to receive(:args).and_return(OpenStruct.new("verbose?" => true))
         end
 
         it "warns about garbage" do
@@ -115,8 +143,8 @@ describe SystemCommand::Result do
       end
 
       context "when verbose" do
-        before(:each) do
-          allow(ARGV).to receive(:verbose?).and_return(true)
+        before do
+          allow(Homebrew).to receive(:args).and_return(OpenStruct.new("verbose?" => true))
         end
 
         it "warns about garbage" do

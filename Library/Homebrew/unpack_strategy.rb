@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 module UnpackStrategy
   module Magic
     # length of the longest regex (currently Tar)
@@ -30,6 +32,7 @@ module UnpackStrategy
   def self.strategies
     @strategies ||= [
       Tar, # needs to be before Bzip2/Gzip/Xz/Lzma
+      Pax,
       Gzip,
       Lzma,
       Xz,
@@ -65,35 +68,35 @@ module UnpackStrategy
 
   def self.from_type(type)
     type = {
-      naked: :uncompressed,
-      nounzip: :uncompressed,
+      naked:     :uncompressed,
+      nounzip:   :uncompressed,
       seven_zip: :p7zip,
     }.fetch(type, type)
 
     begin
-      const_get(type.to_s.split("_").map(&:capitalize).join)
+      const_get(type.to_s.split("_").map(&:capitalize).join.gsub(/\d+[a-z]/, &:upcase))
     rescue NameError
       nil
     end
   end
 
   def self.from_extension(extension)
-    strategies.sort_by { |s| s.extensions.map(&:length).max(0) }
+    strategies.sort_by { |s| s.extensions.map(&:length).max || 0 }
               .reverse
-              .detect { |s| s.extensions.any? { |ext| extension.end_with?(ext) } }
+              .find { |s| s.extensions.any? { |ext| extension.end_with?(ext) } }
   end
 
   def self.from_magic(path)
-    strategies.detect { |s| s.can_extract?(path) }
+    strategies.find { |s| s.can_extract?(path) }
   end
 
-  def self.detect(path, extension_only: false, type: nil, ref_type: nil, ref: nil)
+  def self.detect(path, prioritise_extension: false, type: nil, ref_type: nil, ref: nil, merge_xattrs: nil)
     strategy = from_type(type) if type
 
-    if extension_only
+    if prioritise_extension && path.extname.present?
       strategy ||= from_extension(path.extname)
       strategy ||= strategies.select { |s| s < Directory || s == Fossil }
-                             .detect { |s| s.can_extract?(path) }
+                             .find { |s| s.can_extract?(path) }
     else
       strategy ||= from_magic(path)
       strategy ||= from_extension(path.extname)
@@ -101,15 +104,16 @@ module UnpackStrategy
 
     strategy ||= Uncompressed
 
-    strategy.new(path, ref_type: ref_type, ref: ref)
+    strategy.new(path, ref_type: ref_type, ref: ref, merge_xattrs: merge_xattrs)
   end
 
-  attr_reader :path
+  attr_reader :path, :merge_xattrs
 
-  def initialize(path, ref_type: nil, ref: nil)
+  def initialize(path, ref_type: nil, ref: nil, merge_xattrs: nil)
     @path = Pathname(path).expand_path
     @ref_type = ref_type
     @ref = ref
+    @merge_xattrs = merge_xattrs
   end
 
   def extract(to: nil, basename: nil, verbose: false)
@@ -119,7 +123,7 @@ module UnpackStrategy
     extract_to_dir(unpack_dir, basename: basename, verbose: verbose)
   end
 
-  def extract_nestedly(to: nil, basename: nil, verbose: false, extension_only: false)
+  def extract_nestedly(to: nil, basename: nil, verbose: false, prioritise_extension: false)
     Dir.mktmpdir do |tmp_unpack_dir|
       tmp_unpack_dir = Pathname(tmp_unpack_dir)
 
@@ -128,13 +132,17 @@ module UnpackStrategy
       children = tmp_unpack_dir.children
 
       if children.count == 1 && !children.first.directory?
-        s = UnpackStrategy.detect(children.first, extension_only: extension_only)
+        FileUtils.chmod "+rw", children.first, verbose: verbose
 
-        s.extract_nestedly(to: to, verbose: verbose, extension_only: extension_only)
+        s = UnpackStrategy.detect(children.first, prioritise_extension: prioritise_extension)
+
+        s.extract_nestedly(to: to, verbose: verbose, prioritise_extension: prioritise_extension)
         next
       end
 
       Directory.new(tmp_unpack_dir).extract(to: to, verbose: verbose)
+
+      FileUtils.chmod_R "+w", tmp_unpack_dir, force: true, verbose: verbose
     end
   end
 
@@ -165,6 +173,7 @@ require "unpack_strategy/mercurial"
 require "unpack_strategy/microsoft_office_xml"
 require "unpack_strategy/otf"
 require "unpack_strategy/p7zip"
+require "unpack_strategy/pax"
 require "unpack_strategy/pkg"
 require "unpack_strategy/rar"
 require "unpack_strategy/self_extracting_executable"

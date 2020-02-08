@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require "compilers"
 
 class CxxStdlib
@@ -13,9 +15,8 @@ class CxxStdlib
   end
 
   def self.create(type, compiler)
-    if type && ![:libstdcxx, :libcxx].include?(type)
-      raise ArgumentError, "Invalid C++ stdlib type: #{type}"
-    end
+    raise ArgumentError, "Invalid C++ stdlib type: #{type}" if type && ![:libstdcxx, :libcxx].include?(type)
+
     klass = (compiler.to_s =~ GNU_GCC_REGEXP) ? GnuStdlib : AppleStdlib
     klass.new(type, compiler)
   end
@@ -39,10 +40,10 @@ class CxxStdlib
     @compiler = compiler.to_sym
   end
 
-  # If either package doesn't use C++, all is well
-  # libstdc++ and libc++ aren't ever intercompatible
+  # If either package doesn't use C++, all is well.
+  # libstdc++ and libc++ aren't ever intercompatible.
   # libstdc++ is compatible across Apple compilers, but
-  # not between Apple and GNU compilers, or between GNU compiler versions
+  # not between Apple and GNU compilers, or between GNU compiler versions.
   def compatible_with?(other)
     return true if type.nil? || other.type.nil?
 
@@ -59,9 +60,7 @@ class CxxStdlib
       next if dep.build?
 
       dep_stdlib = Tab.for_formula(dep.to_formula).cxxstdlib
-      unless compatible_with? dep_stdlib
-        raise CompatibilityError.new(formula, dep, dep_stdlib)
-      end
+      raise CompatibilityError.new(formula, dep, dep_stdlib) unless compatible_with? dep_stdlib
     end
   end
 

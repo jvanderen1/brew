@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require "tab"
 require "formula"
 
@@ -31,13 +33,13 @@ describe Tab do
       "stdlib"               => "libcxx",
       "runtime_dependencies" => [],
       "source"               => {
-        "tap" => CoreTap.instance.to_s,
-        "path" => CoreTap.instance.path.to_s,
-        "spec" => "stable",
+        "tap"      => CoreTap.instance.to_s,
+        "path"     => CoreTap.instance.path.to_s,
+        "spec"     => "stable",
         "versions" => {
           "stable" => "0.10",
-          "devel" => "0.14",
-          "head" => "HEAD-1111111",
+          "devel"  => "0.14",
+          "head"   => "HEAD-1111111",
         },
       },
     )
@@ -243,7 +245,10 @@ describe Tab do
     end
 
     it "raises a parse exception message including the Tab filename" do
-      expect { described_class.from_file_content("''", "receipt.json") }.to raise_error(JSON::ParserError, /receipt.json:/)
+      expect { described_class.from_file_content("''", "receipt.json") }.to raise_error(
+        JSON::ParserError,
+        /receipt.json:/,
+      )
     end
   end
 
@@ -302,7 +307,7 @@ describe Tab do
       expect(subject.tabfile).to eq(f_tab_path)
     end
 
-    it "can create a Tab for a non-existant Keg" do
+    it "can create a Tab for a non-existent Keg" do
       f.prefix.mkpath
 
       expect(subject.tabfile).to eq(f_tab_path)
@@ -323,7 +328,7 @@ describe Tab do
       expect(tab.source["path"]).to eq(alias_path.to_s)
     end
 
-    it "creates a Tab for a given Formula" do
+    it "creates a Tab for a given Formula with existing Tab" do
       f.prefix.mkpath
       f_tab_path.write f_tab_content
 
@@ -331,7 +336,7 @@ describe Tab do
       expect(tab.tabfile).to eq(f_tab_path)
     end
 
-    it "can create a Tab for a non-existant Formula" do
+    it "can create a Tab for a non-existent Formula" do
       f.prefix.mkpath
 
       tab = described_class.for_formula(f)

@@ -1,11 +1,13 @@
+# frozen_string_literal: true
+
 require "utils/bottles"
 
 describe Utils::Bottles::Collector do
   describe "#fetch_checksum_for" do
     it "returns passed tags" do
-      subject[:lion] = "foo"
-      subject[:mountain_lion] = "bar"
-      expect(subject.fetch_checksum_for(:mountain_lion)).to eq(["bar", :mountain_lion])
+      subject[:yosemite] = "foo"
+      subject[:el_captain] = "bar"
+      expect(subject.fetch_checksum_for(:el_captain)).to eq(["bar", :el_captain])
     end
 
     it "returns nil if empty" do
@@ -13,33 +15,30 @@ describe Utils::Bottles::Collector do
     end
 
     it "returns nil when there is no match" do
-      subject[:lion] = "foo"
+      subject[:yosemite] = "foo"
       expect(subject.fetch_checksum_for(:foo)).to be nil
     end
 
-    it "returns nil when there is no match and later tag is present" do
-      subject[:lion_or_later] = "foo"
-      expect(subject.fetch_checksum_for(:foo)).to be nil
+    it "uses older tags when needed", :needs_macos do
+      subject[:mavericks] = "foo"
+      expect(subject.send(:find_matching_tag, :mavericks)).to eq(:mavericks)
+      expect(subject.send(:find_matching_tag, :yosemite)).to eq(:mavericks)
     end
 
-    it "prefers exact matches" do
-      subject[:lion_or_later] = "foo"
-      subject[:mountain_lion] = "bar"
-      expect(subject.fetch_checksum_for(:mountain_lion)).to eq(["bar", :mountain_lion])
+    it "does not use older tags when requested not to", :needs_macos do
+      allow(ARGV).to receive(:skip_or_later_bottles?).and_return(true)
+      allow(OS::Mac).to receive(:prerelease?).and_return(true)
+      subject[:mavericks] = "foo"
+      expect(subject.send(:find_matching_tag, :mavericks)).to eq(:mavericks)
+      expect(subject.send(:find_matching_tag, :yosemite)).to be_nil
     end
 
-    it "finds '_or_later' tags", :needs_macos do
-      subject[:lion_or_later] = "foo"
-      expect(subject.fetch_checksum_for(:mountain_lion)).to eq(["foo", :lion_or_later])
-      expect(subject.fetch_checksum_for(:snow_leopard)).to be nil
-    end
-
-    it "finds '_altivec' tags", :needs_macos do
-      subject[:tiger_altivec] = "foo"
-      expect(subject.fetch_checksum_for(:tiger_g4)).to eq(["foo", :tiger_altivec])
-      expect(subject.fetch_checksum_for(:tiger_g4e)).to eq(["foo", :tiger_altivec])
-      expect(subject.fetch_checksum_for(:tiger_g5)).to eq(["foo", :tiger_altivec])
-      expect(subject.fetch_checksum_for(:tiger_g3)).to be nil
+    it "ignores HOMEBREW_SKIP_OR_LATER_BOTTLES on release versions", :needs_macos do
+      allow(ARGV).to receive(:skip_or_later_bottles?).and_return(true)
+      allow(OS::Mac).to receive(:prerelease?).and_return(false)
+      subject[:mavericks] = "foo"
+      expect(subject.send(:find_matching_tag, :mavericks)).to eq(:mavericks)
+      expect(subject.send(:find_matching_tag, :yosemite)).to eq(:mavericks)
     end
   end
 end

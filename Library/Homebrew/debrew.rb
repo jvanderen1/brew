@@ -1,10 +1,12 @@
+# frozen_string_literal: true
+
 require "mutex_m"
 require "debrew/irb"
 
 module Debrew
   extend Mutex_m
 
-  Ignorable = Module.new
+  Ignorable = Module.new.freeze
 
   module Raise
     def raise(*)
@@ -60,7 +62,7 @@ module Debrew
         if i.positive?
           choice = menu.entries[i - 1]
         else
-          possible = menu.entries.find_all { |e| e.name.start_with?(input) }
+          possible = menu.entries.select { |e| e.name.start_with?(input) }
 
           case possible.size
           when 0 then puts "No such option"
@@ -86,7 +88,7 @@ module Debrew
 
   def self.debrew
     @active = true
-    Object.send(:include, Raise)
+    Object.include Raise
 
     begin
       yield

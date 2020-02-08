@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require "extend/ENV"
 
 shared_examples EnvActivation do
@@ -65,7 +67,7 @@ shared_examples EnvActivation do
       expect(subject["foo"]).to eq("1")
     end
 
-    it "appends to a non-existant key" do
+    it "appends to a non-existent key" do
       subject.append "foo", "1"
       expect(subject["foo"]).to eq("1")
     end
@@ -91,7 +93,7 @@ shared_examples EnvActivation do
       expect(subject["foo"]).to eq("1")
     end
 
-    it "prepends to a non-existant key" do
+    it "prepends to a non-existent key" do
       subject.prepend "foo", "1"
       expect(subject["foo"]).to eq("1")
     end
@@ -116,20 +118,18 @@ shared_examples EnvActivation do
 
   describe "#prepend_path" do
     it "prepends to a path" do
-      subject.prepend_path "FOO", "/usr/libexec"
-      expect(subject["FOO"]).to eq("/usr/libexec")
+      subject.prepend_path "FOO", "/usr/local"
+      expect(subject["FOO"]).to eq("/usr/local")
 
       subject.prepend_path "FOO", "/usr"
-      expect(subject["FOO"]).to eq("/usr#{File::PATH_SEPARATOR}/usr/libexec")
+      expect(subject["FOO"]).to eq("/usr#{File::PATH_SEPARATOR}/usr/local")
     end
   end
 
   describe "#compiler" do
     it "allows switching compilers" do
-      [:clang, :gcc_4_2, :gcc_4_0].each do |compiler|
-        subject.public_send(compiler)
-        expect(subject.compiler).to eq(compiler)
-      end
+      subject.public_send("gcc-6")
+      expect(subject.compiler).to eq("gcc-6")
     end
   end
 
@@ -141,6 +141,13 @@ shared_examples EnvActivation do
     end
 
     expect(subject["MAKEFLAGS"]).to eq("-j4")
+  end
+
+  describe "#sensitive_environment" do
+    it "list sensitive environment" do
+      subject["SECRET_TOKEN"] = "password"
+      expect(subject.sensitive_environment).to include("SECRET_TOKEN")
+    end
   end
 
   describe "#clear_sensitive_environment!" do
@@ -162,12 +169,6 @@ shared_examples EnvActivation do
       expect(subject.compiler_any_clang?(:llvm_clang)).to be true
     end
   end
-
-  describe "#compiler_with_cxx11_support?" do
-    it "returns true for gcc-4.9" do
-      expect(subject.compiler_with_cxx11_support?("gcc-4.9")).to be true
-    end
-  end
 end
 
 describe Stdenv do
@@ -183,17 +184,6 @@ describe Superenv do
   end
 
   describe "#cxx11" do
-    it "raises an error when the compiler isn't supported" do
-      %w[gcc gcc-4.7].each do |compiler|
-        subject["HOMEBREW_CC"] = compiler
-
-        expect { subject.cxx11 }
-          .to raise_error(/The selected compiler doesn't support C\+\+11:/)
-
-        expect(subject["HOMEBREW_CCCFG"]).to be nil
-      end
-    end
-
     it "supports gcc-5" do
       subject["HOMEBREW_CC"] = "gcc-5"
       subject.cxx11

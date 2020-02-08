@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 class LazyObject < Delegator
   def initialize(&callable)
     super(callable)
@@ -5,6 +7,7 @@ class LazyObject < Delegator
 
   def __getobj__
     return @__delegate__ if defined?(@__delegate__)
+
     @__delegate__ = @__callable__.call
   end
 

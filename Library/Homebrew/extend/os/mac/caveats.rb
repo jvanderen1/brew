@@ -1,9 +1,11 @@
+# frozen_string_literal: true
+
 class Caveats
   undef plist_caveats
 
   def plist_caveats
     s = []
-    if f.plist || (keg&.plist_installed?)
+    if f.plist || keg&.plist_installed?
       plist_domain = f.plist_path.basename(".plist")
 
       # we readlink because this path probably doesn't exist since caveats

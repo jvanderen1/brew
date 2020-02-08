@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 module UnpackStrategy
   class Tar
     include UnpackStrategy
@@ -9,7 +11,7 @@ module UnpackStrategy
         ".tar",
         ".tbz", ".tbz2", ".tar.bz2",
         ".tgz", ".tar.gz",
-        ".tlz", ".tar.lz",
+        ".tlzma", ".tar.lzma",
         ".txz", ".tar.xz"
       ]
     end
@@ -17,14 +19,11 @@ module UnpackStrategy
     def self.can_extract?(path)
       return true if path.magic_number.match?(/\A.{257}ustar/n)
 
-      unless [Bzip2, Gzip, Lzip, Xz].any? { |s| s.can_extract?(path) }
-        return false
-      end
+      return false unless [Bzip2, Gzip, Lzip, Xz].any? { |s| s.can_extract?(path) }
 
       # Check if `tar` can list the contents, then it can also extract it.
-      IO.popen(["tar", "tf", path], err: File::NULL) do |stdout|
-        !stdout.read(1).nil?
-      end
+      stdout, _, status = system_command("tar", args: ["tf", path], print_stderr: false)
+      status.success? && !stdout.empty?
     end
 
     private
@@ -40,7 +39,7 @@ module UnpackStrategy
         end
 
         system_command! "tar",
-                        args: ["xf", tar_path, "-C", unpack_dir],
+                        args:    ["xof", tar_path, "-C", unpack_dir],
                         verbose: verbose
       end
     end

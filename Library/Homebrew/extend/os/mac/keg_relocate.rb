@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 class Keg
   class << self
     undef file_linked_libraries
@@ -46,6 +48,7 @@ class Keg
 
     mach_o_files.each do |file|
       next if file.mach_o_executable? && skip_executables
+
       dylibs = file.dynamically_linked_libraries
       results << :libcxx unless dylibs.grep(/libc\+\+.+\.dylib/).empty?
       results << :libstdcxx unless dylibs.grep(/libstdc\+\+.+\.dylib/).empty?
@@ -68,10 +71,31 @@ class Keg
           new_name = fixed_name(file, bad_name)
           change_install_name(bad_name, new_name, file) unless new_name == bad_name
         end
+
+        # If none of the install names reference RPATH(s), then we can safely
+        # remove all RPATHs from the file.
+        if ENV["HOMEBREW_RELOCATE_METAVARS"] &&
+           file.dynamically_linked_libraries.none? { |lib| lib.start_with?("@rpath") }
+          # Note: This could probably be made more efficient by reverse-sorting
+          # the RPATHs by offset and calling MachOFile#delete_command
+          # with repopulate: false.
+          file.rpaths.each { |r| file.delete_rpath(r) }
+        end
       end
     end
 
     generic_fix_dynamic_linkage
+  end
+
+  def expand_rpath(file, bad_name)
+    suffix = bad_name.sub(/^@rpath/, "")
+
+    file.rpaths.each do |rpath|
+      return rpath/suffix if (rpath/suffix).exist?
+    end
+
+    opoo "Could not find library #{bad_name} for #{file}"
+    bad_name
   end
 
   # If file is a dylib or bundle itself, look for the dylib named by
@@ -86,6 +110,8 @@ class Keg
       "@loader_path/#{bad_name}"
     elsif file.mach_o_executable? && (lib + bad_name).exist?
       "#{lib}/#{bad_name}"
+    elsif bad_name.start_with?("@rpath") && ENV["HOMEBREW_RELOCATE_METAVARS"]
+      expand_rpath file, bad_name
     elsif (abs_name = find_dylib(bad_name)) && abs_name.exist?
       abs_name.to_s
     else
@@ -96,7 +122,8 @@ class Keg
 
   def each_install_name_for(file, &block)
     dylibs = file.dynamically_linked_libraries
-    dylibs.reject! { |fn| fn =~ /^@(loader_|executable_|r)path/ }
+    dylibs.reject! { |fn| fn =~ /^@(loader|executable)_path/ }
+    dylibs.reject! { |fn| fn =~ /^@rpath/ } unless ENV["HOMEBREW_RELOCATE_METAVARS"]
     dylibs.each(&block)
   end
 
@@ -110,7 +137,7 @@ class Keg
 
   # Matches framework references like `XXX.framework/Versions/YYY/XXX` and
   # `XXX.framework/XXX`, both with or without a slash-delimited prefix.
-  FRAMEWORK_RX = %r{(?:^|/)(([^/]+)\.framework/(?:Versions/[^/]+/)?\2)$}
+  FRAMEWORK_RX = %r{(?:^|/)(([^/]+)\.framework/(?:Versions/[^/]+/)?\2)$}.freeze
 
   def find_dylib_suffix_from(bad_name)
     if (framework = bad_name.match(FRAMEWORK_RX))
@@ -122,6 +149,7 @@ class Keg
 
   def find_dylib(bad_name)
     return unless lib.directory?
+
     suffix = "/#{find_dylib_suffix_from(bad_name)}"
     lib.find { |pn| break pn if pn.to_s.end_with?(suffix) }
   end
@@ -135,6 +163,7 @@ class Keg
       # if we've already processed a file, ignore its hardlinks (which have the same dev ID and inode)
       # this prevents relocations from being performed on a binary more than once
       next unless hardlinks.add? [pn.stat.dev, pn.stat.ino]
+
       mach_o_files << pn
     end
 

@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require "requirements/java_requirement"
 
 describe JavaRequirement do
@@ -14,7 +16,7 @@ describe JavaRequirement do
   describe "#inspect" do
     subject { described_class.new(%w[1.7+]) }
 
-    its(:inspect) { is_expected.to eq('#<JavaRequirement: "java" [] version="1.7+">') }
+    its(:inspect) { is_expected.to eq('#<JavaRequirement: [] version="1.7+">') }
   end
 
   describe "#display_s" do
@@ -55,7 +57,7 @@ describe JavaRequirement do
       def setup_java_with_version(version)
         IO.write java, <<~SH
           #!/bin/sh
-          echo 'java version "#{version}"'
+          echo 'java version "#{version}"' 1>&2
         SH
         FileUtils.chmod "+x", java
       end
@@ -101,6 +103,27 @@ describe JavaRequirement do
           expect(subject).to be_satisfied
         end
       end
+    end
+  end
+
+  describe "#suggestion" do
+    context "without specific version" do
+      its(:suggestion) { is_expected.to match(/brew cask install adoptopenjdk/) }
+      its(:cask) { is_expected.to eq("adoptopenjdk") }
+    end
+
+    context "with version 1.8" do
+      subject { described_class.new(%w[1.8]) }
+
+      its(:suggestion) { is_expected.to match(%r{brew cask install homebrew/cask-versions/adoptopenjdk8}) }
+      its(:cask) { is_expected.to eq("homebrew/cask-versions/adoptopenjdk8") }
+    end
+
+    context "with version 1.8+" do
+      subject { described_class.new(%w[1.8+]) }
+
+      its(:suggestion) { is_expected.to match(/brew cask install adoptopenjdk/) }
+      its(:cask) { is_expected.to eq("adoptopenjdk") }
     end
   end
 end

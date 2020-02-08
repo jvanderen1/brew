@@ -1,7 +1,5 @@
-require "compat/os/mac"
-require "compat/dependable"
-require "compat/dependency_collector"
-require "compat/fileutils"
-require "compat/formula_support"
-require "compat/hbc"
-require "compat/tap"
+# frozen_string_literal: true
+
+require "compat/cask/dsl/version"
+require "compat/requirements/macos_requirement"
+require "compat/formula"

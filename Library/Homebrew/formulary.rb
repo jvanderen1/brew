@@ -1,11 +1,21 @@
+# frozen_string_literal: true
+
 require "digest/md5"
 require "extend/cachable"
 
-# The Formulary is responsible for creating instances of Formula.
+# The Formulary is responsible for creating instances of {Formula}.
 # It is not meant to be used directly from formulae.
 
 module Formulary
   extend Cachable
+
+  def self.enable_factory_cache!
+    @factory_cache = true
+  end
+
+  def self.factory_cached?
+    !@factory_cache.nil?
+  end
 
   def self.formula_class_defined?(path)
     cache.key?(path)
@@ -16,27 +26,25 @@ module Formulary
   end
 
   def self.load_formula(name, path, contents, namespace)
-    if ENV["HOMEBREW_DISABLE_LOAD_FORMULA"]
-      raise "Formula loading disabled by HOMEBREW_DISABLE_LOAD_FORMULA!"
-    end
+    raise "Formula loading disabled by HOMEBREW_DISABLE_LOAD_FORMULA!" if ENV["HOMEBREW_DISABLE_LOAD_FORMULA"]
 
     mod = Module.new
     const_set(namespace, mod)
     begin
       mod.module_eval(contents, path)
-    rescue NoMethodError, ArgumentError, ScriptError => e
+    rescue NameError, ArgumentError, ScriptError => e
       raise FormulaUnreadableError.new(name, e)
     end
     class_name = class_s(name)
 
     begin
       mod.const_get(class_name)
-    rescue NameError => original_exception
+    rescue NameError => e
       class_list = mod.constants
                       .map { |const_name| mod.const_get(const_name) }
                       .select { |const| const.is_a?(Class) }
-      e = FormulaClassUnavailableError.new(name, path, class_name, class_list)
-      raise e, "", original_exception.backtrace
+      new_exception = FormulaClassUnavailableError.new(name, path, class_name, class_list)
+      raise new_exception, "", e.backtrace
     end
   end
 
@@ -45,6 +53,38 @@ module Formulary
     namespace = "FormulaNamespace#{Digest::MD5.hexdigest(path.to_s)}"
     klass = load_formula(name, path, contents, namespace)
     cache[path] = klass
+  end
+
+  def self.resolve(name, spec: nil)
+    if name.include?("/") || File.exist?(name)
+      f = factory(name, *spec)
+      if f.any_version_installed?
+        tab = Tab.for_formula(f)
+        resolved_spec = spec || tab.spec
+        f.active_spec = resolved_spec if f.send(resolved_spec)
+        f.build = tab
+        if f.head? && tab.tabfile
+          k = Keg.new(tab.tabfile.parent)
+          f.version.update_commit(k.version.version.commit) if k.version.head?
+        end
+      end
+    else
+      rack = to_rack(name)
+      alias_path = factory(name).alias_path
+      f = from_rack(rack, *spec, alias_path: alias_path)
+    end
+
+    # If this formula was installed with an alias that has since changed,
+    # then it was specified explicitly in ARGV. (Using the alias would
+    # instead have found the new formula.)
+    #
+    # Because of this, the user is referring to this specific formula,
+    # not any formula targeted by the same alias, so in this context
+    # the formula shouldn't be considered outdated if the alias used to
+    # install it has changed.
+    f.follow_installed_alias = false
+
+    f
   end
 
   def self.ensure_utf8_encoding(io)
@@ -92,6 +132,7 @@ module Formulary
     def load_file
       $stderr.puts "#{$PROGRAM_NAME} (#{self.class.name}): loading #{path}" if ARGV.debug?
       raise FormulaUnavailableError, name unless path.file?
+
       Formulary.load_formula_from_path(name, path)
     end
   end
@@ -142,7 +183,7 @@ module Formulary
     end
   end
 
-  # Loads formulae from disk using a path
+  # Loads formulae from disk using a path.
   class FromPathLoader < FormulaLoader
     def initialize(path)
       path = Pathname.new(path).expand_path
@@ -150,7 +191,7 @@ module Formulary
     end
   end
 
-  # Loads formulae from URLs
+  # Loads formulae from URLs.
   class FromUrlLoader < FormulaLoader
     attr_reader :url
 
@@ -162,6 +203,15 @@ module Formulary
     end
 
     def load_file
+      if url =~ %r{githubusercontent.com/[\w-]+/[\w-]+/[a-f0-9]{40}(/Formula)?/([\w+-.@]+).rb}
+        formula_name = Regexp.last_match(2)
+        ohai "Consider using `brew extract #{formula_name} ...`!"
+        puts <<~EOS
+          This will extract your desired #{formula_name} version to a stable tap instead of
+          installing from an unstable URL!
+
+        EOS
+      end
       HOMEBREW_CACHE_FORMULA.mkpath
       FileUtils.rm_f(path)
       curl_download url, to: path
@@ -211,9 +261,7 @@ module Formulary
           new_name = new_tap.core_tap? ? name : new_tapped_name
         end
 
-        if warn && old_name && new_name
-          opoo "Use #{new_name} instead of deprecated #{old_name}"
-        end
+        opoo "Use #{new_name} instead of deprecated #{old_name}" if warn && old_name && new_name
       end
 
       [name, path]
@@ -247,7 +295,7 @@ module Formulary
     end
   end
 
-  # Load formulae directly from their contents
+  # Load formulae directly from their contents.
   class FormulaContentsLoader < FormulaLoader
     # The formula's contents
     attr_reader :contents
@@ -265,14 +313,27 @@ module Formulary
   end
 
   # Return a Formula instance for the given reference.
-  # `ref` is string containing:
+  # `ref` is a string containing:
+  #
   # * a formula name
   # * a formula pathname
   # * a formula URL
   # * a local bottle reference
   def self.factory(ref, spec = :stable, alias_path: nil, from: nil)
     raise ArgumentError, "Formulae must have a ref!" unless ref
-    loader_for(ref, from: from).get_formula(spec, alias_path: alias_path)
+
+    cache_key = "#{ref}-#{spec}-#{alias_path}-#{from}"
+    if factory_cached? && cache[:formulary_factory] &&
+       cache[:formulary_factory][cache_key]
+      return cache[:formulary_factory][cache_key]
+    end
+
+    formula = loader_for(ref, from: from).get_formula(spec, alias_path: alias_path)
+    if factory_cached?
+      cache[:formulary_factory] ||= {}
+      cache[:formulary_factory][cache_key] ||= formula
+    end
+    formula
   end
 
   # Return a Formula instance for the given rack.
@@ -283,7 +344,7 @@ module Formulary
   # to install the formula will be set instead.
   def self.from_rack(rack, spec = nil, alias_path: nil)
     kegs = rack.directory? ? rack.subdirs.map { |d| Keg.new(d) } : []
-    keg = kegs.detect(&:linked?) || kegs.detect(&:optlinked?) || kegs.max_by(&:version)
+    keg = kegs.find(&:linked?) || kegs.find(&:optlinked?) || kegs.max_by(&:version)
 
     if keg
       from_keg(keg, spec, alias_path: alias_path)
@@ -362,22 +423,16 @@ module Formulary
       return TapLoader.new(ref, from: from)
     end
 
-    if File.extname(ref) == ".rb" && Pathname.new(ref).expand_path.exist?
-      return FromPathLoader.new(ref)
-    end
+    return FromPathLoader.new(ref) if File.extname(ref) == ".rb" && Pathname.new(ref).expand_path.exist?
 
     formula_with_that_name = core_path(ref)
-    if formula_with_that_name.file?
-      return FormulaLoader.new(ref, formula_with_that_name)
-    end
+    return FormulaLoader.new(ref, formula_with_that_name) if formula_with_that_name.file?
 
     possible_alias = CoreTap.instance.alias_dir/ref
     return AliasLoader.new(possible_alias) if possible_alias.file?
 
     possible_tap_formulae = tap_paths(ref)
-    if possible_tap_formulae.size > 1
-      raise TapFormulaAmbiguityError.new(ref, possible_tap_formulae)
-    end
+    raise TapFormulaAmbiguityError.new(ref, possible_tap_formulae) if possible_tap_formulae.size > 1
 
     if possible_tap_formulae.size == 1
       path = possible_tap_formulae.first.resolved_path
@@ -387,9 +442,7 @@ module Formulary
 
     if newref = CoreTap.instance.formula_renames[ref]
       formula_with_that_oldname = core_path(newref)
-      if formula_with_that_oldname.file?
-        return FormulaLoader.new(newref, formula_with_that_oldname)
-      end
+      return FormulaLoader.new(newref, formula_with_that_oldname) if formula_with_that_oldname.file?
     end
 
     possible_tap_newname_formulae = []
@@ -403,19 +456,13 @@ module Formulary
       raise TapFormulaWithOldnameAmbiguityError.new(ref, possible_tap_newname_formulae)
     end
 
-    unless possible_tap_newname_formulae.empty?
-      return TapLoader.new(possible_tap_newname_formulae.first, from: from)
-    end
+    return TapLoader.new(possible_tap_newname_formulae.first, from: from) unless possible_tap_newname_formulae.empty?
 
     possible_keg_formula = Pathname.new("#{HOMEBREW_PREFIX}/opt/#{ref}/.brew/#{ref}.rb")
-    if possible_keg_formula.file?
-      return FormulaLoader.new(ref, possible_keg_formula)
-    end
+    return FormulaLoader.new(ref, possible_keg_formula) if possible_keg_formula.file?
 
     possible_cached_formula = Pathname.new("#{HOMEBREW_CACHE_FORMULA}/#{ref}.rb")
-    if possible_cached_formula.file?
-      return FormulaLoader.new(ref, possible_cached_formula)
-    end
+    return FormulaLoader.new(ref, possible_cached_formula) if possible_cached_formula.file?
 
     NullLoader.new(ref)
   end
@@ -432,23 +479,19 @@ module Formulary
                       "#{tap}HomebrewFormula/#{name}.rb",
                       "#{tap}#{name}.rb",
                       "#{tap}Aliases/#{name}",
-                    ]).detect(&:file?)
+                    ]).find(&:file?)
     end.compact
   end
 
   def self.find_with_priority(ref, spec = :stable)
     possible_pinned_tap_formulae = tap_paths(ref, Dir["#{HOMEBREW_LIBRARY}/PinnedTaps/*/*/"]).map(&:realpath)
-    if possible_pinned_tap_formulae.size > 1
-      raise TapFormulaAmbiguityError.new(ref, possible_pinned_tap_formulae)
-    end
+    raise TapFormulaAmbiguityError.new(ref, possible_pinned_tap_formulae) if possible_pinned_tap_formulae.size > 1
 
     if possible_pinned_tap_formulae.size == 1
       selected_formula = factory(possible_pinned_tap_formulae.first, spec)
       if core_path(ref).file?
-        opoo <<~EOS
-          #{ref} is provided by core, but is now shadowed by #{selected_formula.full_name}.
-          To refer to the core formula, use Homebrew/core/#{ref} instead.
-        EOS
+        odisabled "brew tap-pin user/tap",
+                  "fully-scoped user/tap/formula naming"
       end
       selected_formula
     else

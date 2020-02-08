@@ -1,28 +1,41 @@
+# frozen_string_literal: true
+
 require "uri"
 require "tempfile"
 
 module GitHub
   module_function
 
-  API_URL = "https://api.github.com".freeze
+  API_URL = "https://api.github.com"
 
   CREATE_GIST_SCOPES = ["gist"].freeze
   CREATE_ISSUE_FORK_OR_PR_SCOPES = ["public_repo"].freeze
   ALL_SCOPES = (CREATE_GIST_SCOPES + CREATE_ISSUE_FORK_OR_PR_SCOPES).freeze
-  ALL_SCOPES_URL = Formatter.url("https://github.com/settings/tokens/new?scopes=#{ALL_SCOPES.join(",")}&description=Homebrew").freeze
-  PR_ENV_KEY = "HOMEBREW_NEW_FORMULA_PULL_REQUEST_URL".freeze
+  ALL_SCOPES_URL = Formatter.url(
+    "https://github.com/settings/tokens/new?scopes=#{ALL_SCOPES.join(",")}&description=Homebrew",
+  ).freeze
+  PR_ENV_KEY = "HOMEBREW_NEW_FORMULA_PULL_REQUEST_URL"
   PR_ENV = ENV[PR_ENV_KEY]
 
-  Error = Class.new(RuntimeError)
-  HTTPNotFoundError = Class.new(Error)
+  class Error < RuntimeError
+    attr_reader :github_message
+  end
+
+  class HTTPNotFoundError < Error
+    def initialize(github_message)
+      @github_message = github_message
+      super
+    end
+  end
 
   class RateLimitExceededError < Error
-    def initialize(reset, error)
+    def initialize(reset, github_message)
+      @github_message = github_message
       super <<~EOS
-        GitHub API Error: #{error}
+        GitHub API Error: #{github_message}
         Try again in #{pretty_ratelimit_reset(reset)}, or create a personal access token:
           #{ALL_SCOPES_URL}
-        and then set the token as: export HOMEBREW_GITHUB_API_TOKEN="your_new_token"
+        #{Utils::Shell.set_variable_in_profile("HOMEBREW_GITHUB_API_TOKEN", "your_token_here")}
       EOS
     end
 
@@ -32,12 +45,13 @@ module GitHub
   end
 
   class AuthenticationFailedError < Error
-    def initialize(error)
-      message = "GitHub #{error}\n"
+    def initialize(github_message)
+      @github_message = github_message
+      message = +"GitHub #{github_message}:"
       if ENV["HOMEBREW_GITHUB_API_TOKEN"]
         message << <<~EOS
           HOMEBREW_GITHUB_API_TOKEN may be invalid or expired; check:
-          #{Formatter.url("https://github.com/settings/tokens")}
+            #{Formatter.url("https://github.com/settings/tokens")}
         EOS
       else
         message << <<~EOS
@@ -46,51 +60,76 @@ module GitHub
             printf "protocol=https\\nhost=github.com\\n" | git credential-osxkeychain erase
           Or create a personal access token:
             #{ALL_SCOPES_URL}
-          and then set the token as: export HOMEBREW_GITHUB_API_TOKEN="your_new_token"
+          #{Utils::Shell.set_variable_in_profile("HOMEBREW_GITHUB_API_TOKEN", "your_token_here")}
         EOS
       end
-      super message
+      super message.freeze
     end
   end
 
-  def api_credentials
-    @api_credentials ||= begin
-      if ENV["HOMEBREW_GITHUB_API_TOKEN"]
-        ENV["HOMEBREW_GITHUB_API_TOKEN"]
-      elsif ENV["HOMEBREW_GITHUB_API_USERNAME"] && ENV["HOMEBREW_GITHUB_API_PASSWORD"]
-        [ENV["HOMEBREW_GITHUB_API_PASSWORD"], ENV["HOMEBREW_GITHUB_API_USERNAME"]]
+  class ValidationFailedError < Error
+    def initialize(github_message, errors)
+      @github_message = if errors.empty?
+        github_message
       else
-        github_credentials = api_credentials_from_keychain
-        github_username = github_credentials[/username=(.+)/, 1]
-        github_password = github_credentials[/password=(.+)/, 1]
-        if github_username && github_password
-          [github_password, github_username]
-        else
-          []
-        end
+        "#{github_message}: #{errors}"
       end
+
+      super(@github_message)
     end
   end
 
-  def api_credentials_from_keychain
-    Utils.popen(["git", "credential-osxkeychain", "get"], "w+") do |pipe|
+  def env_token
+    ENV["HOMEBREW_GITHUB_API_TOKEN"].presence
+  end
+
+  def env_username_password
+    return if ENV["HOMEBREW_GITHUB_API_USERNAME"].blank?
+    return if ENV["HOMEBREW_GITHUB_API_PASSWORD"].blank?
+
+    [ENV["HOMEBREW_GITHUB_API_PASSWORD"], ENV["HOMEBREW_GITHUB_API_USERNAME"]]
+  end
+
+  def keychain_username_password
+    github_credentials = Utils.popen(["git", "credential-osxkeychain", "get"], "w+") do |pipe|
       pipe.write "protocol=https\nhost=github.com\n"
       pipe.close_write
       pipe.read
     end
+    github_username = github_credentials[/username=(.+)/, 1]
+    github_password = github_credentials[/password=(.+)/, 1]
+    return unless github_username
+
+    # Don't use passwords from the keychain unless they look like
+    # GitHub Personal Access Tokens:
+    #   https://github.com/Homebrew/brew/issues/6862#issuecomment-572610344
+    return unless /^[a-f0-9]{40}$/i.match?(github_password)
+
+    [github_password, github_username]
   rescue Errno::EPIPE
     # The above invocation via `Utils.popen` can fail, causing the pipe to be
     # prematurely closed (before we can write to it) and thus resulting in a
     # broken pipe error. The root cause is usually a missing or malfunctioning
     # `git-credential-osxkeychain` helper.
-    ""
+    nil
+  end
+
+  def api_credentials
+    @api_credentials ||= begin
+      env_token || env_username_password || keychain_username_password
+    end
   end
 
   def api_credentials_type
-    token, username = api_credentials
-    return :none if !token || token.empty?
-    return :environment if !username || username.empty?
-    :keychain
+    if env_token
+      :env_token
+    elsif env_username_password
+      :env_username_password
+    elsif keychain_username_password
+      :keychain_username_password
+    else
+      :none
+    end
   end
 
   def api_credentials_error_message(response_headers, needed_scopes)
@@ -99,27 +138,32 @@ module GitHub
     @api_credentials_error_message ||= begin
       unauthorized = (response_headers["http/1.1"] == "401 Unauthorized")
       scopes = response_headers["x-accepted-oauth-scopes"].to_s.split(", ")
-      needed_human_scopes = needed_scopes.join(", ")
-      needed_human_scopes = "none" if needed_human_scopes.empty?
-      if !unauthorized && scopes.empty?
+      if unauthorized && scopes.blank?
+        needed_human_scopes = needed_scopes.join(", ")
         credentials_scopes = response_headers["x-oauth-scopes"]
+        return if needed_human_scopes.blank? && credentials_scopes.blank?
+
+        needed_human_scopes = "none" if needed_human_scopes.blank?
+        credentials_scopes = "none" if credentials_scopes.blank?
 
         case GitHub.api_credentials_type
-        when :keychain
+        when :keychain_username_password
           onoe <<~EOS
             Your macOS keychain GitHub credentials do not have sufficient scope!
             Scopes they need: #{needed_human_scopes}
             Scopes they have: #{credentials_scopes}
-            Create a personal access token: #{ALL_SCOPES_URL}
-            and then set HOMEBREW_GITHUB_API_TOKEN as the authentication method instead.
+            Create a personal access token:
+              #{ALL_SCOPES_URL}
+            #{Utils::Shell.set_variable_in_profile("HOMEBREW_GITHUB_API_TOKEN", "your_token_here")}
           EOS
-        when :environment
+        when :env_token
           onoe <<~EOS
             Your HOMEBREW_GITHUB_API_TOKEN does not have sufficient scope!
-            Scopes they need: #{needed_human_scopes}
-            Scopes it has: #{credentials_scopes}
-            Create a new personal access token: #{ALL_SCOPES_URL}
-            and then set the new HOMEBREW_GITHUB_API_TOKEN as the authentication method instead.
+            Scopes it needs: #{needed_human_scopes}
+              Scopes it has: #{credentials_scopes}
+            Create a new personal access token:
+              #{ALL_SCOPES_URL}
+            #{Utils::Shell.set_variable_in_profile("HOMEBREW_GITHUB_API_TOKEN", "your_token_here")}
           EOS
         end
       end
@@ -127,17 +171,18 @@ module GitHub
     end
   end
 
-  def open_api(url, data: nil, scopes: [].freeze)
+  def open_api(url, data: nil, request_method: nil, scopes: [].freeze)
     # This is a no-op if the user is opting out of using the GitHub API.
     return block_given? ? yield({}) : {} if ENV["HOMEBREW_NO_GITHUB_API"]
 
-    args = ["--header", "application/vnd.github.v3+json", "--write-out", "\n%{http_code}"]
+    args = ["--header", "Accept: application/vnd.github.v3+json", "--write-out", "\n%\{http_code}"]
+    args += ["--header", "Accept: application/vnd.github.antiope-preview+json"]
 
     token, username = api_credentials
     case api_credentials_type
-    when :keychain
+    when :env_username_password, :keychain_username_password
       args += ["--user", "#{username}:#{token}"]
-    when :environment
+    when :env_token
       args += ["--header", "Authorization: token #{token}"]
     end
 
@@ -157,11 +202,13 @@ module GitHub
         data_tmpfile.write data
         data_tmpfile.close
         args += ["--data", "@#{data_tmpfile.path}"]
+
+        args += ["--request", request_method.to_s] if request_method
       end
 
       args += ["--dump-header", headers_tmpfile.path]
 
-      output, errors, status = curl_output("--location", url.to_s, *args)
+      output, errors, status = curl_output("--location", url.to_s, *args, secrets: [token])
       output, _, http_code = output.rpartition("\n")
       output, _, http_code = output.rpartition("\n") if http_code == "000"
       headers = headers_tmpfile.read
@@ -175,9 +222,10 @@ module GitHub
     end
 
     begin
-      if !http_code.start_with?("2") && !status.success?
-        raise_api_error(output, errors, http_code, headers, scopes)
-      end
+      raise_api_error(output, errors, http_code, headers, scopes) if !http_code.start_with?("2") || !status.success?
+
+      return if http_code == "204" # No Content
+
       json = JSON.parse output
       if block_given?
         yield json
@@ -190,36 +238,53 @@ module GitHub
   end
 
   def raise_api_error(output, errors, http_code, headers, scopes)
+    json = begin
+      JSON.parse(output)
+    rescue
+      nil
+    end
+    message = json&.[]("message") || "curl failed! #{errors}"
+
     meta = {}
     headers.lines.each do |l|
       key, _, value = l.delete(":").partition(" ")
       key = key.downcase.strip
       next if key.empty?
+
       meta[key] = value.strip
     end
 
     if meta.fetch("x-ratelimit-remaining", 1).to_i <= 0
       reset = meta.fetch("x-ratelimit-reset").to_i
-      error = JSON.parse(output)["message"]
-      raise RateLimitExceededError.new(reset, error)
+      raise RateLimitExceededError.new(reset, message)
     end
 
     GitHub.api_credentials_error_message(meta, scopes)
 
     case http_code
     when "401", "403"
-      raise AuthenticationFailedError, output
+      raise AuthenticationFailedError, message
     when "404"
-      raise HTTPNotFoundError, output
+      raise HTTPNotFoundError, message
+    when "422"
+      errors = json&.[]("errors") || []
+      raise ValidationFailedError.new(message, errors)
     else
-      error = begin
-        JSON.parse(output)["message"]
-      rescue
-        nil
-      end
-      error ||= "curl failed! #{errors}"
-      raise Error, error
+      raise Error, message
     end
+  end
+
+  def check_runs(repo: nil, commit: nil, pr: nil)
+    if pr
+      repo = pr.fetch("base").fetch("repo").fetch("full_name")
+      commit = pr.fetch("head").fetch("sha")
+    end
+
+    open_api(url_to("repos", repo, "commits", commit, "check-runs"))
+  end
+
+  def create_check_run(repo:, data:)
+    open_api(url_to("repos", repo, "check-runs"), data: data)
   end
 
   def search_issues(query, **qualifiers)
@@ -236,7 +301,33 @@ module GitHub
 
   def issues_for_formula(name, options = {})
     tap = options[:tap] || CoreTap.instance
-    search_issues(name, state: "open", repo: "#{tap.user}/homebrew-#{tap.repo}", in: "title")
+    tap_full_name = options[:tap_full_name] || tap.full_name
+    search_issues(name, state: "open", repo: tap_full_name, in: "title")
+  end
+
+  def user
+    @user ||= open_api("#{API_URL}/user")
+  end
+
+  def permission(repo, user)
+    open_api("#{API_URL}/repos/#{repo}/collaborators/#{user}/permission")
+  end
+
+  def write_access?(repo, user = nil)
+    user ||= self.user["login"]
+    ["admin", "write"].include?(permission(repo, user)["permission"])
+  end
+
+  def pull_requests(repo, **options)
+    url = "#{API_URL}/repos/#{repo}/pulls?#{URI.encode_www_form(options)}"
+    open_api(url)
+  end
+
+  def merge_pull_request(repo, number:, sha:, merge_method:, commit_message: nil)
+    url = "#{API_URL}/repos/#{repo}/pulls/#{number}/merge"
+    data = { sha: sha, merge_method: merge_method }
+    data[:commit_message] = commit_message if commit_message
+    open_api(url, data: data, request_method: :PUT, scopes: CREATE_ISSUE_FORK_OR_PR_SCOPES)
   end
 
   def print_pull_requests_matching(query)
@@ -248,7 +339,7 @@ module GitHub
       open_prs
     else
       puts "Closed pull requests:" unless open_or_closed_prs.empty?
-      open_or_closed_prs
+      open_or_closed_prs.take(20)
     end
 
     prs.each { |i| puts "#{i["title"]} (#{i["html_url"]})" }
@@ -259,6 +350,22 @@ module GitHub
     data = {}
     scopes = CREATE_ISSUE_FORK_OR_PR_SCOPES
     open_api(url, data: data, scopes: scopes)
+  end
+
+  def check_fork_exists(repo)
+    _, reponame = repo.split("/")
+
+    case api_credentials_type
+    when :env_username_password, :keychain_username_password
+      _, username = api_credentials
+    when :env_token
+      username = open_api(url_to("user")) { |json| json["login"] }
+    end
+    json = open_api(url_to("repos", username, reponame))
+
+    return false if json["message"] == "Not Found"
+
+    true
   end
 
   def create_pull_request(repo, title, head, base, body)
@@ -295,6 +402,7 @@ module GitHub
 
   def create_issue_comment(body)
     return false unless PR_ENV
+
     _, user, repo, pr = *PR_ENV.match(HOMEBREW_PULL_OR_COMMIT_URL_REGEX)
     if !user || !repo || !pr
       opoo <<-EOS.undent
@@ -319,6 +427,7 @@ module GitHub
     url = "#{API_URL}/repos/#{user}/#{repo}/issues/#{pr}/comments"
     comments = open_api(url)
     return unless comments
+
     comments.any? { |comment| comment["body"].eql?(body) }
   end
 

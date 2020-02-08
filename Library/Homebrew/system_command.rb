@@ -1,6 +1,8 @@
+# frozen_string_literal: true
+
 require "open3"
 require "ostruct"
-require "vendor/plist/plist"
+require "plist"
 require "shellwords"
 
 require "extend/io"
@@ -8,16 +10,20 @@ require "extend/hash_validator"
 using HashValidator
 require "extend/predicable"
 
-def system_command(*args)
-  SystemCommand.run(*args)
-end
+module Kernel
+  def system_command(*args)
+    SystemCommand.run(*args)
+  end
 
-def system_command!(*args)
-  SystemCommand.run!(*args)
+  def system_command!(*args)
+    SystemCommand.run!(*args)
+  end
 end
 
 class SystemCommand
   extend Predicable
+
+  attr_reader :pid
 
   def self.run(executable, **options)
     new(executable, **options).run!
@@ -28,28 +34,30 @@ class SystemCommand
   end
 
   def run!
-    puts command.shelljoin.gsub(/\\=/, "=") if verbose? || ARGV.debug?
+    puts redact_secrets(command.shelljoin.gsub('\=', "="), @secrets) if verbose? || ARGV.debug?
 
-    @merged_output = []
+    @output = []
 
     each_output_line do |type, line|
       case type
       when :stdout
         $stdout << line if print_stdout?
-        @merged_output << [:stdout, line]
+        @output << [:stdout, line]
       when :stderr
         $stderr << line if print_stderr?
-        @merged_output << [:stderr, line]
+        @output << [:stderr, line]
       end
     end
 
-    assert_success if must_succeed?
+    result = Result.new(command, @output, @status, secrets: @secrets)
+    result.assert_success! if must_succeed?
     result
   end
 
   def initialize(executable, args: [], sudo: false, env: {}, input: [], must_succeed: false,
-                 print_stdout: false, print_stderr: true, verbose: false, **options)
+                 print_stdout: false, print_stderr: true, verbose: false, secrets: [], **options)
 
+    require "extend/ENV"
     @executable = executable
     @args = args
     @sudo = sudo
@@ -57,6 +65,7 @@ class SystemCommand
     @print_stdout = print_stdout
     @print_stderr = print_stderr
     @verbose = verbose
+    @secrets = (Array(secrets) + ENV.sensitive_environment.values).uniq
     @must_succeed = must_succeed
     options.assert_valid_keys!(:chdir)
     @options = options
@@ -87,20 +96,14 @@ class SystemCommand
 
     return [] if set_variables.empty?
 
-    ["env", *set_variables]
+    ["/usr/bin/env", *set_variables]
   end
 
   def sudo_prefix
     return [] unless sudo?
+
     askpass_flags = ENV.key?("SUDO_ASKPASS") ? ["-A"] : []
     ["/usr/bin/sudo", *askpass_flags, "-E", "--"]
-  end
-
-  def assert_success
-    return if @status.success?
-    raise ErrorDuringExecution.new(command,
-                                   status: @status,
-                                   output: @merged_output)
   end
 
   def expanded_args
@@ -119,7 +122,8 @@ class SystemCommand
     executable, *args = command
 
     raw_stdin, raw_stdout, raw_stderr, raw_wait_thr =
-      Open3.popen3(env, executable, *args, **options)
+      Open3.popen3(env, [executable, executable], *args, **options)
+    @pid = raw_wait_thr.pid
 
     write_input_to(raw_stdin)
     raw_stdin.close_write
@@ -128,7 +132,7 @@ class SystemCommand
     @status = raw_wait_thr.value
   rescue SystemCallError => e
     @status = $CHILD_STATUS
-    @merged_output << [:stderr, e.message]
+    @output << [:stderr, e.message]
   end
 
   def write_input_to(raw_stdin)
@@ -144,39 +148,54 @@ class SystemCommand
       break if readable_sources.empty?
 
       readable_sources.each do |source|
-        begin
-          line = source.readline_nonblock || ""
-          type = (source == sources[0]) ? :stdout : :stderr
-          yield(type, line)
-        rescue IO::WaitReadable, EOFError
-          next
-        end
+        line = source.readline_nonblock || ""
+        type = (source == sources[0]) ? :stdout : :stderr
+        yield(type, line)
+      rescue IO::WaitReadable, EOFError
+        next
       end
     end
 
     sources.each(&:close_read)
   end
 
-  def result
-    output = @merged_output.each_with_object(stdout: "", stderr: "") do |(type, line), hash|
-      hash[type] << line
+  class Result
+    attr_accessor :command, :status, :exit_status
+
+    def initialize(command, output, status, secrets:)
+      @command       = command
+      @output        = output
+      @status        = status
+      @exit_status   = status.exitstatus
+      @secrets       = secrets
     end
 
-    Result.new(command, output[:stdout], output[:stderr], @status)
-  end
+    def assert_success!
+      return if @status.success?
 
-  class Result
-    attr_accessor :command, :stdout, :stderr, :status, :exit_status
+      raise ErrorDuringExecution.new(command, status: @status, output: @output, secrets: @secrets)
+    end
 
-    def initialize(command, stdout, stderr, status)
-      @command     = command
-      @stdout      = stdout
-      @stderr      = stderr
-      @status      = status
-      @exit_status = status.exitstatus
+    def stdout
+      @stdout ||= @output.select { |type,| type == :stdout }
+                         .map { |_, line| line }
+                         .join
+    end
+
+    def stderr
+      @stderr ||= @output.select { |type,| type == :stderr }
+                         .map { |_, line| line }
+                         .join
+    end
+
+    def merged_output
+      @merged_output ||= @output.map { |_, line| line }
+                                .join
     end
 
     def success?
+      return false if @exit_status.nil?
+
       @exit_status.zero?
     end
 
@@ -203,8 +222,9 @@ class SystemCommand
     end
 
     def warn_plist_garbage(garbage)
-      return unless ARGV.verbose?
-      return unless garbage =~ /\S/
+      return unless Homebrew.args.verbose?
+      return unless garbage.match?(/\S/)
+
       opoo "Received non-XML output from #{Formatter.identifier(command.first)}:"
       $stderr.puts garbage.strip
     end

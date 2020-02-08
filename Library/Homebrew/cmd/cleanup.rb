@@ -1,45 +1,60 @@
-#:  * `cleanup` [`--prune=`<days>] [`--dry-run`] [`-s`] [<formulae>]:
-#:    For all installed or specific formulae, remove any older versions from the
-#:    cellar. In addition, old downloads from the Homebrew download-cache are deleted.
-#:
-#:    If `--prune=`<days> is specified, remove all cache files older than <days>.
-#:
-#:    If `--dry-run` or `-n` is passed, show what would be removed, but do not
-#:    actually remove anything.
-#:
-#:    If `-s` is passed, scrub the cache, removing downloads for even the latest
-#:    versions of formulae. Note downloads for any installed formulae will still not be
-#:    deleted. If you want to delete those too: `rm -rf $(brew --cache)`
+# frozen_string_literal: true
 
 require "cleanup"
+require "cli/parser"
 
 module Homebrew
   module_function
 
+  def cleanup_args
+    Homebrew::CLI::Parser.new do
+      usage_banner <<~EOS
+        `cleanup` [<options>] [<formula>|<cask>]
+
+        Remove stale lock files and outdated downloads for all formulae and casks,
+        and remove old versions of installed formulae. If arguments are specified,
+        only do this for the given formulae and casks.
+      EOS
+      flag   "--prune=",
+             description: "Remove all cache files older than specified <days>."
+      switch "-n", "--dry-run",
+             description: "Show what would be removed, but do not actually remove anything."
+      switch "-s",
+             description: "Scrub the cache, including downloads for even the latest versions. "\
+                          "Note downloads for any installed formulae or casks will still not be deleted. "\
+                          "If you want to delete those too: `rm -rf \"$(brew --cache)\"`"
+      switch "--prune-prefix",
+             description: "Only prune the symlinks and directories from the prefix and remove no other files."
+      switch :verbose
+      switch :debug
+    end
+  end
+
   def cleanup
-    if ARGV.named.empty?
-      Cleanup.cleanup
-    else
-      Cleanup.cleanup_cellar(ARGV.resolved_formulae)
+    cleanup_args.parse
+
+    cleanup = Cleanup.new(*args.remaining, dry_run: args.dry_run?, scrub: args.s?, days: args.prune&.to_i)
+    if args.prune_prefix?
+      cleanup.prune_prefix_symlinks_and_directories
+      return
     end
 
-    report_disk_usage unless Cleanup.disk_cleanup_size.zero?
-    report_unremovable_kegs unless Cleanup.unremovable_kegs.empty?
-  end
+    cleanup.clean!
 
-  def report_disk_usage
-    disk_space = disk_usage_readable(Cleanup.disk_cleanup_size)
-    if ARGV.dry_run?
-      ohai "This operation would free approximately #{disk_space} of disk space."
-    else
-      ohai "This operation has freed approximately #{disk_space} of disk space."
+    unless cleanup.disk_cleanup_size.zero?
+      disk_space = disk_usage_readable(cleanup.disk_cleanup_size)
+      if args.dry_run?
+        ohai "This operation would free approximately #{disk_space} of disk space."
+      else
+        ohai "This operation has freed approximately #{disk_space} of disk space."
+      end
     end
-  end
 
-  def report_unremovable_kegs
+    return if cleanup.unremovable_kegs.empty?
+
     ofail <<~EOS
       Could not cleanup old kegs! Fix your permissions on:
-        #{Cleanup.unremovable_kegs.join "\n  "}
+        #{cleanup.unremovable_kegs.join "\n  "}
     EOS
   end
 end

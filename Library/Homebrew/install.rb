@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require "diagnostic"
 require "fileutils"
 require "hardware"
@@ -7,49 +9,73 @@ module Homebrew
   module Install
     module_function
 
-    def check_ppc
+    def check_cpu
       case Hardware::CPU.type
       when :ppc
         abort <<~EOS
           Sorry, Homebrew does not support your computer's CPU architecture.
-          For PPC support, see: https://github.com/mistydemeo/tigerbrew
+          For PPC support, see:
+            #{Formatter.url("https://github.com/mistydemeo/tigerbrew")}
         EOS
       end
     end
 
-    def check_writable_install_location
-      if HOMEBREW_CELLAR.exist? && !HOMEBREW_CELLAR.writable_real?
-        raise "Cannot write to #{HOMEBREW_CELLAR}"
+    def attempt_directory_creation
+      Keg::MUST_EXIST_DIRECTORIES.each do |dir|
+        FileUtils.mkdir_p(dir) unless dir.exist?
+
+        # Create these files to ensure that these directories aren't removed
+        # by the Catalina installer.
+        # (https://github.com/Homebrew/brew/issues/6263)
+        keep_file = dir/".keepme"
+        FileUtils.touch(keep_file) unless keep_file.exist?
+      rescue
+        nil
       end
-      prefix_writable = HOMEBREW_PREFIX.writable_real? || HOMEBREW_PREFIX.to_s == "/usr/local"
-      raise "Cannot write to #{HOMEBREW_PREFIX}" unless prefix_writable
     end
 
-    def check_development_tools
-      checks = Diagnostic::Checks.new
-      failed = false
-      checks.fatal_development_tools_checks.each do |check|
-        out = checks.send(check)
-        next if out.nil?
-        failed ||= true
-        ofail out
-      end
-      exit 1 if failed
-    end
+    def check_cc_argv
+      return unless ARGV.cc
 
-    def check_cellar
-      FileUtils.mkdir_p HOMEBREW_CELLAR unless File.exist? HOMEBREW_CELLAR
-    rescue
-      raise <<~EOS
-        Could not create #{HOMEBREW_CELLAR}
-        Check you have permission to write to #{HOMEBREW_CELLAR.parent}
+      @checks ||= Diagnostic::Checks.new
+      opoo <<~EOS
+        You passed `--cc=#{ARGV.cc}`.
+        #{@checks.please_create_pull_requests}
       EOS
     end
 
-    def perform_preinstall_checks
-      check_ppc
-      check_writable_install_location
-      check_cellar
+    def perform_preinstall_checks(all_fatal: false)
+      check_cpu
+      attempt_directory_creation
+      check_cc_argv
+      diagnostic_checks(:supported_configuration_checks, fatal: all_fatal)
+      diagnostic_checks(:fatal_preinstall_checks)
+    end
+    alias generic_perform_preinstall_checks perform_preinstall_checks
+    module_function :generic_perform_preinstall_checks
+
+    def perform_build_from_source_checks(all_fatal: false)
+      diagnostic_checks(:fatal_build_from_source_checks)
+      diagnostic_checks(:build_from_source_checks, fatal: all_fatal)
+    end
+
+    def diagnostic_checks(type, fatal: true)
+      @checks ||= Diagnostic::Checks.new
+      failed = false
+      @checks.public_send(type).each do |check|
+        out = @checks.public_send(check)
+        next if out.nil?
+
+        if fatal
+          failed ||= true
+          ofail out
+        else
+          opoo out
+        end
+      end
+      exit 1 if failed && fatal
     end
   end
 end
+
+require "extend/os/install"

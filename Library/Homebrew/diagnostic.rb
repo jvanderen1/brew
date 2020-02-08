@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require "keg"
 require "language/python"
 require "formula"
@@ -12,6 +14,7 @@ module Homebrew
       ff.each do |f|
         missing_dependencies = f.missing_dependencies(hide: hide)
         next if missing_dependencies.empty?
+
         yield f.full_name, missing_dependencies if block_given?
         missing[f.full_name] = missing_dependencies
       end
@@ -32,6 +35,7 @@ module Homebrew
         vol_index = @volumes.index(vols[0])
         # volume not found in volume list
         return -1 if vol_index.nil?
+
         vol_index
       end
 
@@ -57,34 +61,78 @@ module Homebrew
 
     class Checks
       ############# HELPERS
-      # Finds files in HOMEBREW_PREFIX *and* /usr/local.
-      # Specify paths relative to a prefix eg. "include/foo.h".
+      # Finds files in `HOMEBREW_PREFIX` *and* /usr/local.
+      # Specify paths relative to a prefix, e.g. "include/foo.h".
       # Sets @found for your convenience.
       def find_relative_paths(*relative_paths)
-        @found = [HOMEBREW_PREFIX, "/usr/local"].uniq.inject([]) do |found, prefix|
+        @found = [HOMEBREW_PREFIX, "/usr/local"].uniq.reduce([]) do |found, prefix|
           found + relative_paths.map { |f| File.join(prefix, f) }.select { |f| File.exist? f }
         end
       end
 
       def inject_file_list(list, string)
-        list.inject(string) { |acc, elem| acc << "  #{elem}\n" }
+        list.reduce(string.dup) { |acc, elem| acc << "  #{elem}\n" }
+            .freeze
       end
       ############# END HELPERS
 
-      def development_tools_checks
+      def fatal_preinstall_checks
+        %w[
+          check_access_directories
+        ].freeze
+      end
+
+      def fatal_build_from_source_checks
         %w[
           check_for_installed_developer_tools
         ].freeze
       end
 
-      def fatal_development_tools_checks
-        %w[
-        ].freeze
+      def supported_configuration_checks
+        [].freeze
+      end
+
+      def build_from_source_checks
+        [].freeze
       end
 
       def build_error_checks
-        (development_tools_checks + %w[
-        ]).freeze
+        supported_configuration_checks + build_from_source_checks
+      end
+
+      def please_create_pull_requests(what = "unsupported configuration")
+        <<~EOS
+          You will encounter build failures with some formulae.
+          Please create pull requests instead of asking for help on Homebrew's GitHub,
+          Discourse, Twitter or IRC. You are responsible for resolving any issues you
+          experience while you are running this #{what}.
+        EOS
+      end
+
+      def examine_git_origin(repository_path, desired_origin)
+        return if !Utils.git_available? || !repository_path.git?
+
+        current_origin = repository_path.git_origin
+
+        if current_origin.nil?
+          <<~EOS
+            Missing #{desired_origin} git origin remote.
+
+            Without a correctly configured origin, Homebrew won't update
+            properly. You can solve this by adding the remote:
+              git -C "#{repository_path}" remote add origin #{Formatter.url(desired_origin)}
+          EOS
+        elsif !current_origin.match?(%r{#{desired_origin}(\.git|/)?$}i)
+          <<~EOS
+            Suspicious #{desired_origin} git origin remote found.
+            The current git origin is:
+              #{current_origin}
+
+            With a non-standard origin, Homebrew won't update properly.
+            You can solve this by setting the origin remote:
+              git -C "#{repository_path}" remote set-url origin #{Formatter.url(desired_origin)}
+          EOS
+        end
       end
 
       def check_for_installed_developer_tools
@@ -93,17 +141,6 @@ module Homebrew
         <<~EOS
           No developer tools installed.
           #{DevelopmentTools.installation_instructions}
-        EOS
-      end
-
-      def check_build_from_source
-        return unless ENV["HOMEBREW_BUILD_FROM_SOURCE"]
-
-        <<~EOS
-          You have HOMEBREW_BUILD_FROM_SOURCE set. This environment variable is
-          intended for use by Homebrew developers. If you are encountering errors,
-          please try unsetting this. Please do not file issues if you encounter
-          errors when using this environment variable.
         EOS
       end
 
@@ -124,7 +161,7 @@ module Homebrew
 
         <<~EOS
           Anaconda is known to frequently break Homebrew builds, including Vim and
-          MacVim, due to bundling many duplicates of system and Homebrew-available
+          MacVim, due to bundling many duplicates of system and Homebrew-provided
           tools.
 
           If you encounter a build failure please temporarily remove Anaconda
@@ -182,8 +219,6 @@ module Homebrew
         # Static libs which are generally OK should be added to this list,
         # with a short description of the software they come with.
         white_list = [
-          "libsecurity_agent_client.a", # OS X 10.8.2 Supplemental Update
-          "libsecurity_agent_server.a", # OS X 10.8.2 Supplemental Update
           "libntfs-3g.a", # NTFS-3G
           "libntfs.a", # NTFS-3G
           "libublio.a", # NTFS-3G
@@ -268,18 +303,17 @@ module Homebrew
       def check_for_broken_symlinks
         broken_symlinks = []
 
-        Keg::PRUNEABLE_DIRECTORIES.each do |d|
+        Keg::MUST_EXIST_SUBDIRECTORIES.each do |d|
           next unless d.directory?
+
           d.find do |path|
-            if path.symlink? && !path.resolved_path_exists?
-              broken_symlinks << path
-            end
+            broken_symlinks << path if path.symlink? && !path.resolved_path_exists?
           end
         end
         return if broken_symlinks.empty?
 
         inject_file_list broken_symlinks, <<~EOS
-          Broken symlinks were found. Remove them with `brew prune`:
+          Broken symlinks were found. Remove them with `brew cleanup`:
         EOS
       end
 
@@ -293,112 +327,35 @@ module Homebrew
         EOS
       end
 
-      def check_access_homebrew_repository
-        return if HOMEBREW_REPOSITORY.writable_real?
+      def check_exist_directories
+        not_exist_dirs = Keg::MUST_EXIST_DIRECTORIES.reject(&:exist?)
+        return if not_exist_dirs.empty?
 
         <<~EOS
-          #{HOMEBREW_REPOSITORY} is not writable.
+          The following directories do not exist:
+          #{not_exist_dirs.join("\n")}
 
-          You should change the ownership and permissions of #{HOMEBREW_REPOSITORY}
-          back to your user account.
-            sudo chown -R $(whoami) #{HOMEBREW_REPOSITORY}
+          You should create these directories and change their ownership to your account.
+            sudo mkdir -p #{not_exist_dirs.join(" ")}
+            sudo chown -R $(whoami) #{not_exist_dirs.join(" ")}
         EOS
       end
 
-      def check_access_prefix_directories
-        not_writable_dirs = []
-
-        Keg::ALL_TOP_LEVEL_DIRECTORIES.each do |dir|
-          path = HOMEBREW_PREFIX/dir
-          next unless path.exist?
-          next if path.writable_real?
-          not_writable_dirs << path
-        end
-
+      def check_access_directories
+        not_writable_dirs =
+          Keg::MUST_BE_WRITABLE_DIRECTORIES.select(&:exist?)
+                                           .reject(&:writable_real?)
         return if not_writable_dirs.empty?
 
         <<~EOS
-          The following directories are not writable:
+          The following directories are not writable by your user:
           #{not_writable_dirs.join("\n")}
 
-          This can happen if you "sudo make install" software that isn't managed
-          by Homebrew. If a formula tries to write a file to this directory, the
-          install will fail during the link step.
-
-          You should change the ownership of these directories to your account.
+          You should change the ownership of these directories to your user.
             sudo chown -R $(whoami) #{not_writable_dirs.join(" ")}
-        EOS
-      end
 
-      def check_access_site_packages
-        return unless Language::Python.homebrew_site_packages.exist?
-        return if Language::Python.homebrew_site_packages.writable_real?
-
-        <<~EOS
-          #{Language::Python.homebrew_site_packages} isn't writable.
-          This can happen if you "sudo pip install" software that isn't managed
-          by Homebrew. If you install a formula with Python modules, the install
-          will fail during the link step.
-
-          You should change the ownership and permissions of #{Language::Python.homebrew_site_packages}
-          back to your user account.
-            sudo chown -R $(whoami) #{Language::Python.homebrew_site_packages}
-        EOS
-      end
-
-      def check_access_lock_dir
-        return unless HOMEBREW_LOCK_DIR.exist?
-        return if HOMEBREW_LOCK_DIR.writable_real?
-
-        <<~EOS
-          #{HOMEBREW_LOCK_DIR} isn't writable.
-          Homebrew writes lock files to this location.
-
-          You should change the ownership and permissions of #{HOMEBREW_LOCK_DIR}
-          back to your user account.
-            sudo chown -R $(whoami) #{HOMEBREW_LOCK_DIR}
-        EOS
-      end
-
-      def check_access_logs
-        return unless HOMEBREW_LOGS.exist?
-        return if HOMEBREW_LOGS.writable_real?
-
-        <<~EOS
-          #{HOMEBREW_LOGS} isn't writable.
-          Homebrew writes debugging logs to this location.
-
-          You should change the ownership and permissions of #{HOMEBREW_LOGS}
-          back to your user account.
-            sudo chown -R $(whoami) #{HOMEBREW_LOGS}
-        EOS
-      end
-
-      def check_access_cache
-        return unless HOMEBREW_CACHE.exist?
-        return if HOMEBREW_CACHE.writable_real?
-
-        <<~EOS
-          #{HOMEBREW_CACHE} isn't writable.
-          This can happen if you run `brew install` or `brew fetch` as another user.
-          Homebrew caches downloaded files to this location.
-
-          You should change the ownership and permissions of #{HOMEBREW_CACHE}
-          back to your user account.
-            sudo chown -R $(whoami) #{HOMEBREW_CACHE}
-        EOS
-      end
-
-      def check_access_cellar
-        return unless HOMEBREW_CELLAR.exist?
-        return if HOMEBREW_CELLAR.writable_real?
-
-        <<~EOS
-          #{HOMEBREW_CELLAR} isn't writable.
-
-          You should change the ownership and permissions of #{HOMEBREW_CELLAR}
-          back to your user account.
-            sudo chown -R $(whoami) #{HOMEBREW_CELLAR}
+          And make sure that your user has write permission.
+            chmod u+w #{not_writable_dirs.join(" ")}
         EOS
       end
 
@@ -435,9 +392,6 @@ module Homebrew
                   /usr/bin occurs before #{HOMEBREW_PREFIX}/bin
                   This means that system-provided programs will be used instead of those
                   provided by Homebrew. The following tools exist at both paths:
-                EOS
-
-                message += <<~EOS
 
                   Consider setting your PATH so that #{HOMEBREW_PREFIX}/bin
                   occurs before /usr/bin. Here is a one-liner:
@@ -460,7 +414,7 @@ module Homebrew
 
         <<~EOS
           Homebrew's bin was not found in your PATH.
-          Consider setting the PATH for example like so
+          Consider setting the PATH for example like so:
             #{Utils::Shell.prepend_path_in_profile("#{HOMEBREW_PREFIX}/bin")}
         EOS
       end
@@ -470,18 +424,21 @@ module Homebrew
 
         # Don't complain about sbin not being in the path if it doesn't exist
         sbin = HOMEBREW_PREFIX/"sbin"
-        return unless sbin.directory? && !sbin.children.empty?
+        return unless sbin.directory?
+        return if sbin.children.empty?
+        return if sbin.children.one? && sbin.children.first.basename.to_s == ".keepme"
 
         <<~EOS
           Homebrew's sbin was not found in your PATH but you have installed
           formulae that put executables in #{HOMEBREW_PREFIX}/sbin.
-          Consider setting the PATH for example like so
+          Consider setting the PATH for example like so:
             #{Utils::Shell.prepend_path_in_profile("#{HOMEBREW_PREFIX}/sbin")}
         EOS
       end
 
       def check_for_config_scripts
         return unless HOMEBREW_CELLAR.exist?
+
         real_cellar = HOMEBREW_CELLAR.realpath
 
         scripts = []
@@ -508,35 +465,13 @@ module Homebrew
         inject_file_list scripts, <<~EOS
           "config" scripts exist outside your system or Homebrew directories.
           `./configure` scripts often look for *-config scripts to determine if
-          software packages are installed, and what additional flags to use when
+          software packages are installed, and which additional flags to use when
           compiling and linking.
 
           Having additional scripts in your path can confuse software installed via
-          Homebrew if the config script overrides a system or Homebrew provided
+          Homebrew if the config script overrides a system or Homebrew-provided
           script of the same name. We found the following "config" scripts:
         EOS
-      end
-
-      def check_ld_vars
-        ld_vars = ENV.keys.grep(/^(|DY)LD_/)
-        return if ld_vars.empty?
-
-        values = ld_vars.map { |var| "#{var}: #{ENV.fetch(var)}" }
-        message = inject_file_list values, <<~EOS
-          Setting DYLD_* or LD_* variables can break dynamic linking.
-          Set variables:
-        EOS
-
-        if ld_vars.include? "DYLD_INSERT_LIBRARIES"
-          message += <<~EOS
-
-            Setting DYLD_INSERT_LIBRARIES can cause Go builds to fail.
-            Having this set is common if you use this software:
-              #{Formatter.url("https://asepsis.binaryage.com/")}
-          EOS
-        end
-
-        message
       end
 
       def check_for_symlinked_cellar
@@ -553,22 +488,21 @@ module Homebrew
           (B) Symlink "bin/brew" into your prefix, but don't symlink "Cellar".
 
           Older installations of Homebrew may have created a symlinked Cellar, but this can
-          cause problems when two formula install to locations that are mapped on top of each
+          cause problems when two formulae install to locations that are mapped on top of each
           other during the linking step.
         EOS
       end
 
       def check_git_version
-        # https://help.github.com/articles/https-cloning-errors
+        minimum_version = ENV["HOMEBREW_MINIMUM_GIT_VERSION"]
         return unless Utils.git_available?
-        return unless Version.create(Utils.git_version) < Version.create("1.8.5")
+        return if Version.create(Utils.git_version) >= Version.create(minimum_version)
 
         git = Formula["git"]
         git_upgrade_cmd = git.any_version_installed? ? "upgrade" : "install"
         <<~EOS
           An outdated version (#{Utils.git_version}) of Git was detected in your PATH.
-          Git 1.8.5 or newer is required to perform checkouts over HTTPS from GitHub and
-          to support the 'git -C <path>' option.
+          Git #{minimum_version} or newer is required for Homebrew.
           Please upgrade:
             brew #{git_upgrade_cmd} git
         EOS
@@ -604,73 +538,46 @@ module Homebrew
       end
 
       def check_brew_git_origin
-        return if !Utils.git_available? || !(HOMEBREW_REPOSITORY/".git").exist?
-
-        origin = HOMEBREW_REPOSITORY.git_origin
-
-        if origin.nil?
-          <<~EOS
-            Missing Homebrew/brew git origin remote.
-
-            Without a correctly configured origin, Homebrew won't update
-            properly. You can solve this by adding the Homebrew remote:
-              git -C "#{HOMEBREW_REPOSITORY}" remote add origin #{Formatter.url("https://github.com/Homebrew/brew.git")}
-          EOS
-        elsif origin !~ %r{Homebrew/brew(\.git|/)?$}
-          <<~EOS
-            Suspicious Homebrew/brew git origin remote found.
-
-            With a non-standard origin, Homebrew won't pull updates from
-            the main repository. The current git origin is:
-              #{origin}
-
-            Unless you have compelling reasons, consider setting the
-            origin remote to point at the main repository by running:
-              git -C "#{HOMEBREW_REPOSITORY}" remote set-url origin #{Formatter.url("https://github.com/Homebrew/brew.git")}
-          EOS
-        end
+        examine_git_origin(HOMEBREW_REPOSITORY, HOMEBREW_BREW_GIT_REMOTE)
       end
 
       def check_coretap_git_origin
+        examine_git_origin(CoreTap.instance.path, HOMEBREW_CORE_GIT_REMOTE)
+      end
+
+      def check_casktap_git_origin
+        cask_tap = Tap.default_cask_tap
+        return unless cask_tap.installed?
+
+        examine_git_origin(cask_tap.path, cask_tap.remote)
+      end
+
+      def check_coretap_git_branch
+        return if ENV["CI"]
+
         coretap_path = CoreTap.instance.path
         return if !Utils.git_available? || !(coretap_path/".git").exist?
-
-        origin = coretap_path.git_origin
-
-        if origin.nil?
-          <<~EOS
-            Missing #{CoreTap.instance} git origin remote.
-
-            Without a correctly configured origin, Homebrew won't update
-            properly. You can solve this by adding the Homebrew remote:
-              git -C "#{coretap_path}" remote add origin #{Formatter.url("https://github.com/Homebrew/homebrew-core.git")}
-          EOS
-        elsif origin !~ %r{Homebrew/homebrew-core(\.git|/)?$}
-          return if ENV["CI"] && origin.include?("Homebrew/homebrew-test-bot")
-
-          <<~EOS
-            Suspicious #{CoreTap.instance} git origin remote found.
-
-            With a non-standard origin, Homebrew won't pull updates from
-            the main repository. The current git origin is:
-              #{origin}
-
-            Unless you have compelling reasons, consider setting the
-            origin remote to point at the main repository by running:
-              git -C "#{coretap_path}" remote set-url origin #{Formatter.url("https://github.com/Homebrew/homebrew-core.git")}
-          EOS
-        end
-
-        return if ENV["CI"]
 
         branch = coretap_path.git_branch
         return if branch.nil? || branch =~ /master/
 
         <<~EOS
-          Homebrew/homebrew-core is not on the master branch
+          #{CoreTap.instance.full_name} is not on the master branch.
 
           Check out the master branch by running:
             git -C "$(brew --repo homebrew/core)" checkout master
+        EOS
+      end
+
+      def check_deprecated_official_taps
+        tapped_deprecated_taps =
+          Tap.select(&:official?).map(&:repo) & DEPRECATED_OFFICIAL_TAPS
+        return if tapped_deprecated_taps.empty?
+
+        <<~EOS
+          You have the following deprecated, official taps tapped:
+            Homebrew/homebrew-#{tapped_deprecated_taps.join("\n  Homebrew/homebrew-")}
+          Untap them with `brew untap`.
         EOS
       end
 
@@ -678,6 +585,7 @@ module Homebrew
         f.installed_prefixes.each do |prefix|
           prefix.find do |src|
             next if src == prefix
+
             dst = HOMEBREW_PREFIX + src.relative_path_from(prefix)
             return true if dst.symlink? && src == dst.resolved_path
           end
@@ -699,7 +607,7 @@ module Homebrew
         return if frameworks_found.empty?
 
         inject_file_list frameworks_found, <<~EOS
-          Some frameworks can be picked up by CMake's build system and likely
+          Some frameworks can be picked up by CMake's build system and will likely
           cause the build to fail. To compile CMake, you may wish to move these
           out of the way:
         EOS
@@ -716,6 +624,7 @@ module Homebrew
 
       def check_missing_deps
         return unless HOMEBREW_CELLAR.exist?
+
         missing = Set.new
         Homebrew::Diagnostic.missing_deps(Formula.installed).each_value do |deps|
           missing.merge(deps)
@@ -733,21 +642,36 @@ module Homebrew
 
       def check_git_status
         return unless Utils.git_available?
+
+        modified = []
         HOMEBREW_REPOSITORY.cd do
-          return if `git status --untracked-files=all --porcelain -- Library/Homebrew/ 2>/dev/null`.chomp.empty?
+          status = `git status --untracked-files=all --porcelain -- Library/Homebrew/ 2>/dev/null`
+          return if status.blank?
+
+          modified = status.split("\n")
         end
 
-        <<~EOS
-          You have uncommitted modifications to Homebrew
+        message = <<~EOS
+          You have uncommitted modifications to Homebrew.
           If this is a surprise to you, then you should stash these modifications.
           Stashing returns Homebrew to a pristine state but can be undone
           should you later need to do so for some reason.
             cd #{HOMEBREW_LIBRARY} && git stash && git clean -d -f
         EOS
+
+        if ENV["CI"]
+          message += inject_file_list modified, <<~EOS
+
+            Modified files:
+          EOS
+        end
+
+        message
       end
 
       def check_for_bad_python_symlink
         return unless which "python"
+
         `python -V 2>&1` =~ /Python (\d+)\./
         # This won't be the right warning if we matched nothing at all
         return if Regexp.last_match(1).nil?
@@ -784,6 +708,25 @@ module Homebrew
         EOS
       end
 
+      def check_for_unreadable_installed_formula
+        formula_unavailable_exceptions = []
+        Formula.racks.each do |rack|
+          Formulary.from_rack(rack)
+        rescue FormulaUnreadableError, FormulaClassUnavailableError,
+               TapFormulaUnreadableError, TapFormulaClassUnavailableError => e
+          formula_unavailable_exceptions << e
+        rescue FormulaUnavailableError,
+               TapFormulaAmbiguityError, TapFormulaWithOldnameAmbiguityError
+          nil
+        end
+        return if formula_unavailable_exceptions.empty?
+
+        <<~EOS
+          Some installed formulae are not readable:
+            #{formula_unavailable_exceptions.join("\n\n  ")}
+        EOS
+      end
+
       def check_for_unlinked_but_not_keg_only
         unlinked = Formula.racks.reject do |rack|
           if !(HOMEBREW_LINKED_KEGS/rack.basename).directory?
@@ -799,7 +742,7 @@ module Homebrew
         return if unlinked.empty?
 
         inject_file_list unlinked, <<~EOS
-          You have unlinked kegs in your Cellar
+          You have unlinked kegs in your Cellar.
           Leaving kegs unlinked can lead to build-trouble and cause brews that depend on
           those kegs to fail to run properly once built. Run `brew link` on these:
         EOS
@@ -825,7 +768,7 @@ module Homebrew
         message = "You have external commands with conflicting names.\n"
         cmd_map.each do |cmd_name, cmd_paths|
           message += inject_file_list cmd_paths, <<~EOS
-            Found command `#{cmd_name}` in following places:
+            Found command `#{cmd_name}` in the following places:
           EOS
         end
 
@@ -838,21 +781,35 @@ module Homebrew
           unused_formula_dirs = tap.potential_formula_dirs - [tap.formula_dir]
           unused_formula_dirs.each do |dir|
             next unless dir.exist?
+
             dir.children.each do |path|
               next unless path.extname == ".rb"
+
               bad_tap_files[tap] ||= []
               bad_tap_files[tap] << path
             end
           end
         end
         return if bad_tap_files.empty?
+
         bad_tap_files.keys.map do |tap|
           <<~EOS
-            Found Ruby file outside #{tap} tap formula directory
+            Found Ruby file outside #{tap} tap formula directory.
             (#{tap.formula_dir}):
               #{bad_tap_files[tap].join("\n  ")}
           EOS
         end.join("\n")
+      end
+
+      def check_homebrew_prefix
+        return if Homebrew.default_prefix?
+
+        <<~EOS
+          Your Homebrew's prefix is not #{Homebrew::DEFAULT_PREFIX}.
+          Some of Homebrew's bottles (binary packages) can only be used with the default
+          prefix (#{Homebrew::DEFAULT_PREFIX}).
+          #{please_create_pull_requests}
+        EOS
       end
 
       def all

@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 module Utils
   module Shell
     module_function
@@ -9,7 +11,7 @@ module Utils
       shell_name = File.basename(path)
       # handle possible version suffix like `zsh-5.2`
       shell_name.sub!(/-.*\z/m, "")
-      shell_name.to_sym if %w[bash csh fish ksh sh tcsh zsh].include?(shell_name)
+      shell_name.to_sym if %w[bash csh fish ksh mksh sh tcsh zsh].include?(shell_name)
     end
 
     def preferred
@@ -23,7 +25,7 @@ module Utils
     # quote values. quoting keys is overkill
     def export_value(key, value, shell = preferred)
       case shell
-      when :bash, :ksh, :sh, :zsh
+      when :bash, :ksh, :mksh, :sh, :zsh
         "export #{key}=\"#{sh_quote(value)}\""
       when :fish
         # fish quoting is mostly Bourne compatible except that
@@ -35,8 +37,10 @@ module Utils
       end
     end
 
-    # return the shell profile file based on users' preferred shell
+    # return the shell profile file based on user's preferred shell
     def profile
+      return "#{ENV["ZDOTDIR"]}/.zshrc" if preferred == :zsh && ENV["ZDOTDIR"].present?
+
       SHELL_PROFILE_MAP.fetch(preferred, "~/.bash_profile")
     end
 
@@ -53,7 +57,7 @@ module Utils
 
     def prepend_path_in_profile(path)
       case preferred
-      when :bash, :ksh, :sh, :zsh, nil
+      when :bash, :ksh, :mksh, :sh, :zsh, nil
         "echo 'export PATH=\"#{sh_quote(path)}:$PATH\"' >> #{profile}"
       when :csh, :tcsh
         "echo 'setenv PATH #{csh_quote(path)}:$PATH' >> #{profile}"
@@ -64,20 +68,22 @@ module Utils
 
     SHELL_PROFILE_MAP = {
       bash: "~/.bash_profile",
-      csh: "~/.cshrc",
+      csh:  "~/.cshrc",
       fish: "~/.config/fish/config.fish",
-      ksh: "~/.kshrc",
-      sh: "~/.bash_profile",
+      ksh:  "~/.kshrc",
+      mksh: "~/.kshrc",
+      sh:   "~/.bash_profile",
       tcsh: "~/.tcshrc",
-      zsh: "~/.zshrc",
+      zsh:  "~/.zshrc",
     }.freeze
 
-    UNSAFE_SHELL_CHAR = %r{([^A-Za-z0-9_\-.,:/@~\n])}
+    UNSAFE_SHELL_CHAR = %r{([^A-Za-z0-9_\-.,:/@~\n])}.freeze
 
     def csh_quote(str)
       # ruby's implementation of shell_escape
       str = str.to_s
       return "''" if str.empty?
+
       str = str.dup
       # anything that isn't a known safe character is padded
       str.gsub!(UNSAFE_SHELL_CHAR, "\\\\" + "\\1")
@@ -90,6 +96,7 @@ module Utils
       # ruby's implementation of shell_escape
       str = str.to_s
       return "''" if str.empty?
+
       str = str.dup
       # anything that isn't a known safe character is padded
       str.gsub!(UNSAFE_SHELL_CHAR, "\\\\" + "\\1")

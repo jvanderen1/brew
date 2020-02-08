@@ -1,20 +1,24 @@
+# frozen_string_literal: true
+
 require "erb"
 require "tempfile"
 
 class Sandbox
-  SANDBOX_EXEC = "/usr/bin/sandbox-exec".freeze
+  SANDBOX_EXEC = "/usr/bin/sandbox-exec"
 
   def self.available?
-    OS.mac? && OS::Mac.version >= "10.6" && File.executable?(SANDBOX_EXEC)
+    OS.mac? && File.executable?(SANDBOX_EXEC)
   end
 
   def self.formula?(_formula)
     return false unless available?
+
     !ARGV.no_sandbox?
   end
 
   def self.test?
     return false unless available?
+
     !ARGV.no_sandbox?
   end
 
@@ -123,7 +127,7 @@ class Sandbox
         end
       end
 
-      if @failed && ARGV.verbose?
+      if @failed && ENV["HOMEBREW_VERBOSE"].present?
         ohai "Sandbox log"
         puts logs
         $stdout.flush # without it, brew test-bot would fail to catch the log
@@ -135,6 +139,7 @@ class Sandbox
 
   def expand_realpath(path)
     raise unless path.absolute?
+
     path.exist? ? path.realpath : expand_realpath(path.parent)/path.basename
   end
 
@@ -147,7 +152,7 @@ class Sandbox
   end
 
   class SandboxProfile
-    SEATBELT_ERB = <<~ERB.freeze
+    SEATBELT_ERB = <<~ERB
       (version 1)
       (debug deny) ; log all denied operations to /var/log/system.log
       <%= rules.join("\n") %>
@@ -158,7 +163,7 @@ class Sandbox
           (literal "/dev/random")
           (literal "/dev/zero")
           (regex #"^/dev/fd/[0-9]+$")
-          (regex #"^/dev/ttys?[0-9]*$")
+          (regex #"^/dev/tty[a-z0-9]*$")
           )
       (deny file-write*) ; deny non-whitelist file write operations
       (allow process-exec
@@ -175,13 +180,13 @@ class Sandbox
     end
 
     def add_rule(rule)
-      s = "("
+      s = +"("
       s << (rule[:allow] ? "allow" : "deny")
       s << " #{rule[:operation]}"
       s << " (#{rule[:filter]})" if rule[:filter]
       s << " (with #{rule[:modifier]})" if rule[:modifier]
       s << ")"
-      @rules << s
+      @rules << s.freeze
     end
 
     def dump

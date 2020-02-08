@@ -26,11 +26,12 @@ To allow that formulae to update again:
 
     brew unpin <formula>
 
-Note that pinned, outdated formulae that are depended on by another formula need to be upgraded when required as we do not allow formulae to be built against non-latest versions.
+Note that pinned, outdated formulae that another formula depends on need to be upgraded when required as we do not allow formulae to be built against non-latest versions.
 
 ## How do I uninstall old versions of a formula?
-By default, Homebrew does not uninstall old versions of a formula, so
-over time you will accumulate old versions. To remove them, simply use:
+Homebrew's default behaviour automatically uninstalls old versions of a formula every 30 days.
+
+To remove them manually, simply use:
 
     brew cleanup <formula>
 
@@ -41,6 +42,10 @@ or clean up everything at once:
 or to see what would be cleaned up:
 
     brew cleanup -n
+
+or to __disable__ automatic `brew cleanup`:
+
+    export HOMEBREW_NO_INSTALL_CLEANUP=1
 
 ## How do I uninstall Homebrew?
 To uninstall Homebrew, paste the command below in a terminal prompt.
@@ -57,7 +62,7 @@ If you do not uninstall all of the versions that Homebrew has installed,
 Homebrew will continue to attempt to install the newest version it knows
 about when you run `brew upgrade`. This can be surprising.
 
-To remove a formula entirely, you may run `brew uninstall formula_name --force`.
+To remove a formula entirely, you may run `brew uninstall --force <formula>`.
 
 Be careful as this is a destructive operation.
 
@@ -69,14 +74,14 @@ Which is usually: `~/Library/Caches/Homebrew`
 
 ## My Mac `.app`s don’t find `/usr/local/bin` utilities!
 GUI apps on macOS don’t have `/usr/local/bin` in their `PATH` by
-default.  If you’re on Mountain Lion or later, you can fix this by
+default. If you’re on Mountain Lion or later, you can fix this by
 running `sudo launchctl config user path "/usr/local/bin:$PATH"` and
 then rebooting, as documented in `man launchctl`. Note that this sets
-the launchctl PATH for _all users_. For earlier versions of macOS, see
+the launchctl PATH for *all users*. For earlier versions of macOS, see
 [this page](https://developer.apple.com/legacy/library/qa/qa1067/_index.html).
 
 ## How do I contribute to Homebrew?
-Read [CONTRIBUTING.md](https://github.com/Homebrew/brew/blob/master/CONTRIBUTING.md).
+Read our [contribution guidelines](https://github.com/Homebrew/brew/blob/master/CONTRIBUTING.md#contributing-to-homebrew).
 
 ## Why do you compile everything?
 Homebrew provides pre-compiled versions for many formulae. These
@@ -88,10 +93,8 @@ following conditions:
 
 * Options were passed to the install command, i.e. `brew install <formula>`
 will use a bottled version of the formula, but
-`brew install <formula> --enable-bar` will trigger a source build.
+`brew install --enable-bar <formula>` will trigger a source build.
 * The `--build-from-source` option is invoked.
-* The environment variable `HOMEBREW_BUILD_FROM_SOURCE` is set
-(intended for developers only).
 * The machine is not running a supported version of macOS as all
 bottled builds are generated only for supported macOS versions.
 * Homebrew is installed to a prefix other than the standard
@@ -110,10 +113,6 @@ hub pull someone_else
 
 Or:
 
-    brew install https://raw.github.com/user/repo/branch/formula.rb
-
-Or:
-
     brew pull https://github.com/Homebrew/homebrew-core/pull/1234
 
 ## Why does Homebrew prefer I install to `/usr/local`?
@@ -125,8 +124,8 @@ Or:
     fix this for Homebrew formulae (although we don’t always test for
     it), but you’ll find that many RubyGems and Python setup scripts
     break which is something outside our control.
-3.  **It’s safe**<br>Apple has assigned this directory for non-system utilities. Which means
-    there is no files in `/usr/local` by default, so there
+3.  **It’s safe**<br>Apple has assigned this directory for non-system utilities. This means
+    there are no files in `/usr/local` by default, so there
     is no need to worry about messing up existing or system tools.
 
 **If you plan to install gems that depend on
@@ -142,10 +141,10 @@ anyway.
 Homebrew refuses to work using sudo.
 
 You should only ever sudo a tool you trust. Of course, you can trust Homebrew
-;) But do you trust the multi-megabyte Makefile that Homebrew runs? Developers
+😉 But do you trust the multi-megabyte Makefile that Homebrew runs? Developers
 often understand C++ far better than they understand make syntax. It’s too high
 a risk to sudo such stuff. It could modify (or upload) any files on your
-system.And indeed, we’ve seen some build scripts try to modify `/usr` even when
+system. And indeed, we’ve seen some build scripts try to modify `/usr` even when
 the prefix was specified as something else entirely.
 
 We use the macOS sandbox to stop this but this doesn't work when run as the `root` user (which also has read and write access to almost everything on the system).
@@ -205,9 +204,9 @@ our analytics identified it was not widely used.
 
 ## Homebrew is a poor name, it's too generic, why was it chosen?
 @mxcl was too concerned with the beer theme and didn’t consider that the
-project may actually prove popular. By the time he realized it was, it was too
-late. However, today, the first Google hit for “homebrew” is not beer
-related ;-)
+project may actually prove popular. By the time Max realised that it
+was popular, it was too late. However, today, the first Google hit for
+“homebrew” is not beer related ;&#8209;)
 
 ## What does "keg-only" mean?
 It means the formula is installed only into the Cellar; it is not linked

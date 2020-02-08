@@ -1,26 +1,28 @@
-#:  * `tap-new` <user>`/`<repo>:
-#:    Generate the template files for a new tap.
+# frozen_string_literal: true
 
 require "tap"
-require "cli_parser"
+require "cli/parser"
 
 module Homebrew
   module_function
 
-  def write_path(tap, filename, content)
-    path = tap.path/filename
-    tap.path.mkpath
-    raise "#{path} already exists" if path.exist?
-    path.write content
+  def tap_new_args
+    Homebrew::CLI::Parser.new do
+      usage_banner <<~EOS
+        `tap-new` <user>`/`<repo>
+
+        Generate the template files for a new tap.
+      EOS
+      switch :verbose
+      switch :debug
+      max_named 1
+    end
   end
 
   def tap_new
-    Homebrew::CLI::Parser.parse do
-      switch :debug
-      switch :verbose
-    end
+    tap_new_args.parse
 
-    raise "A tap argument is required" if ARGV.named.empty?
+    raise UsageError, "This command requires a tap argument" if ARGV.named.empty?
 
     tap = Tap.fetch(ARGV.named.first)
     titleized_user = tap.user.dup
@@ -49,29 +51,33 @@ module Homebrew
     MARKDOWN
     write_path(tap, "README.md", readme)
 
-    travis = <<~YAML
-      language: c
-      os: osx
-      compiler: clang
-      osx_image: xcode9.2
-      cache:
-        directories:
-          - /usr/local/Homebrew/Library/Homebrew/vendor/bundle
-      branches:
-        only:
-          - master
-
-      before_install:
-        - sudo chown -R "$USER" "$(brew --repo)"
-        - travis_retry brew update
-        - HOMEBREW_TAP_DIR="$(brew --repo "$TRAVIS_REPO_SLUG")"
-        - mkdir -p "$HOMEBREW_TAP_DIR"
-        - rm -rf "$HOMEBREW_TAP_DIR"
-        - ln -s "$PWD" "$HOMEBREW_TAP_DIR"
-
-      script:
-        - brew test-bot
+    azure = <<~YAML
+      jobs:
+      - job: macOS
+        pool:
+          vmImage: macOS-10.14
+        steps:
+          - bash: |
+              set -e
+              sudo xcode-select --switch /Applications/Xcode_10.2.1.app/Contents/Developer
+              brew update
+              HOMEBREW_TAP_DIR="/usr/local/Homebrew/Library/Taps/#{tap.full_name}"
+              mkdir -p "$HOMEBREW_TAP_DIR"
+              rm -rf "$HOMEBREW_TAP_DIR"
+              ln -s "$PWD" "$HOMEBREW_TAP_DIR"
+              brew test-bot
+            displayName: Run brew test-bot
     YAML
-    write_path(tap, ".travis.yml", travis)
+    write_path(tap, "azure-pipelines.yml", azure)
+    ohai "Created #{tap}"
+    puts tap.path.to_s
+  end
+
+  def write_path(tap, filename, content)
+    path = tap.path/filename
+    tap.path.mkpath
+    raise "#{path} already exists" if path.exist?
+
+    path.write content
   end
 end

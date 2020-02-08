@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require "delegate"
 
 class Dependencies < DelegateClass(Array)
@@ -41,6 +43,7 @@ class Requirements < DelegateClass(Set)
     if other.is_a?(Comparable)
       grep(other.class) do |req|
         return self if req > other
+
         delete(req)
       end
     end
@@ -94,26 +97,22 @@ module Homebrew
 
     formula.send("recursive_#{type}") do |dependent, dep|
       if dep.recommended?
-        if ignores.include?("recommended?") || dependent.build.without?(dep)
-          klass.prune
-        end
+        klass.prune if ignores.include?("recommended?") || dependent.build.without?(dep)
+      elsif dep.optional?
+        klass.prune if !includes.include?("optional?") && !dependent.build.with?(dep)
       elsif dep.test?
         if includes.include?("test?")
-          if type == :dependencies
-            Dependency.keep_but_prune_recursive_deps
-          end
+          Dependency.keep_but_prune_recursive_deps if type == :dependencies
+        elsif dep.build?
+          klass.prune unless includes.include?("build?")
         else
-          klass.prune
-        end
-      elsif dep.optional?
-        if !includes.include?("optional?") && !dependent.build.with?(dep)
           klass.prune
         end
       elsif dep.build?
         klass.prune unless includes.include?("build?")
       end
 
-      # If a tap isn't installed, we can't find the dependencies of one
+      # If a tap isn't installed, we can't find the dependencies of one of
       # its formulae, and an exception will be thrown if we try.
       if type == :dependencies &&
          dep.is_a?(TapDependency) &&
@@ -126,6 +125,7 @@ module Homebrew
   def reject_ignores(dependables, ignores, includes)
     dependables.reject do |dep|
       next false unless ignores.any? { |ignore| dep.send(ignore) }
+
       includes.none? { |include| dep.send(include) }
     end
   end

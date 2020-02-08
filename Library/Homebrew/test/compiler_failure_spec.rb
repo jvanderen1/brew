@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require "compilers"
 
 describe CompilerFailure do
@@ -6,32 +8,31 @@ describe CompilerFailure do
   describe "::create" do
     it "creates a failure when given a symbol" do
       failure = described_class.create(:clang)
-      expect(failure).to fail_with(double("Compiler", name: :clang, version: 425))
+      expect(failure).to fail_with(double("Compiler", name: :clang, version: 600))
     end
 
     it "can be given a build number in a block" do
-      failure = described_class.create(:clang) { build 211 }
-      expect(failure).to fail_with(double("Compiler", name: :clang, version: 210))
-      expect(failure).not_to fail_with(double("Compiler", name: :clang, version: 318))
+      failure = described_class.create(:clang) { build 700 }
+      expect(failure).to fail_with(double("Compiler", name: :clang, version: 700))
     end
 
     it "can be given an empty block" do
       failure = described_class.create(:clang) {}
-      expect(failure).to fail_with(double("Compiler", name: :clang, version: 425))
+      expect(failure).to fail_with(double("Compiler", name: :clang, version: 600))
     end
 
     it "creates a failure when given a hash" do
-      failure = described_class.create(gcc: "4.8")
-      expect(failure).to fail_with(double("Compiler", name: "gcc-4.8", version: "4.8"))
-      expect(failure).to fail_with(double("Compiler", name: "gcc-4.8", version: "4.8.1"))
-      expect(failure).not_to fail_with(double("Compiler", name: "gcc-4.7", version: "4.7"))
+      failure = described_class.create(gcc: "7")
+      expect(failure).to fail_with(double("Compiler", name: "gcc-7", version: "7"))
+      expect(failure).to fail_with(double("Compiler", name: "gcc-7", version: "7.1"))
+      expect(failure).not_to fail_with(double("Compiler", name: "gcc-6", version: "6.0"))
     end
 
     it "creates a failure when given a hash and a block with aversion" do
-      failure = described_class.create(gcc: "4.8") { version "4.8.1" }
-      expect(failure).to fail_with(double("Compiler", name: "gcc-4.8", version: "4.8"))
-      expect(failure).to fail_with(double("Compiler", name: "gcc-4.8", version: "4.8.1"))
-      expect(failure).not_to fail_with(double("Compiler", name: "gcc-4.8", version: "4.8.2"))
+      failure = described_class.create(gcc: "7") { version "7.1" }
+      expect(failure).to fail_with(double("Compiler", name: "gcc-7", version: "7"))
+      expect(failure).to fail_with(double("Compiler", name: "gcc-7", version: "7.1"))
+      expect(failure).not_to fail_with(double("Compiler", name: "gcc-7", version: "7.2"))
     end
   end
 end

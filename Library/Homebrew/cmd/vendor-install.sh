@@ -1,29 +1,43 @@
-#: @hide_from_man_page
-#:  * `vendor-install` [<target>]:
-#:     Install vendor version of Homebrew dependencies.
+#:  @hide_from_man_page
+#:  * `vendor-install` [<target>]
+#:
+#:  Install Homebrew's portable Ruby.
 
-# Hide shellcheck complaint:
-# shellcheck source=/dev/null
+# Don't need shellcheck to follow this `source`.
+# shellcheck disable=SC1090
 source "$HOMEBREW_LIBRARY/Homebrew/utils/lock.sh"
 
 VENDOR_DIR="$HOMEBREW_LIBRARY/Homebrew/vendor"
 
 # Built from https://github.com/Homebrew/homebrew-portable-ruby.
+#
+# Dynamic variables can't be detected by shellcheck
+# shellcheck disable=SC2034
 if [[ -n "$HOMEBREW_MACOS" ]]
 then
   if [[ "$HOMEBREW_PROCESSOR" = "Intel" ]]
   then
-    ruby_URL="$HOMEBREW_BOTTLE_DOMAIN/bottles-portable-ruby/portable-ruby-2.3.7.leopard_64.bottle.tar.gz"
-    ruby_URL2="https://github.com/Homebrew/homebrew-portable-ruby/releases/download/2.3.7/portable-ruby-2.3.7.leopard_64.bottle.tar.gz"
-    ruby_SHA="033ac518bb14abdb1bb47d968dc9e967c3ae2035499383a21a79b49d523065d1"
+    ruby_URL="$HOMEBREW_BOTTLE_DOMAIN/bottles-portable-ruby/portable-ruby-2.6.3.mavericks.bottle.tar.gz"
+    ruby_URL2="https://github.com/Homebrew/homebrew-portable-ruby/releases/download/2.6.3/portable-ruby-2.6.3.mavericks.bottle.tar.gz"
+    ruby_SHA="ab81211a2052ccaa6d050741c433b728d0641523d8742eef23a5b450811e5104"
   fi
 elif [[ -n "$HOMEBREW_LINUX" ]]
 then
   case "$HOMEBREW_PROCESSOR" in
     x86_64)
-      ruby_URL="$HOMEBREW_BOTTLE_DOMAIN/bottles-portable-ruby/portable-ruby-2.3.7.x86_64_linux.bottle.tar.gz"
-      ruby_URL2="https://github.com/Homebrew/homebrew-portable-ruby/releases/download/2.3.7/portable-ruby-2.3.7.x86_64_linux.bottle.tar.gz"
-      ruby_SHA="9df214085a0e566a580eea3dd9eab14a2a94930ff74fbf97fb1284e905c8921d"
+      ruby_URL="$HOMEBREW_BOTTLE_DOMAIN/bottles-portable-ruby/portable-ruby-2.6.3.x86_64_linux.bottle.tar.gz"
+      ruby_URL2="https://github.com/Homebrew/homebrew-portable-ruby/releases/download/2.6.3/portable-ruby-2.6.3.x86_64_linux.bottle.tar.gz"
+      ruby_SHA="e8c9b6d3dc5f40844e07b4b694897b8b7cb5a7dab1013b3b8712a22868f98c98"
+      ;;
+    aarch64)
+      ruby_URL="$HOMEBREW_BOTTLE_DOMAIN/bottles-portable-ruby/portable-ruby-2.6.3.aarch64_linux.bottle.tar.gz"
+      ruby_URL2="https://github.com/Homebrew/homebrew-portable-ruby/releases/download/2.6.3/portable-ruby-2.6.3.aarch64_linux.bottle.tar.gz"
+      ruby_SHA="c0b08e2835897af74948508a004d30380b8bcf14264e0dcce194e2c199fb1e35"
+      ;;
+    armv[67]*)
+      ruby_URL="$HOMEBREW_BOTTLE_DOMAIN/bottles-portable-ruby/portable-ruby-2.6.3.armv6_linux.bottle.tar.gz"
+      ruby_URL2="https://github.com/Homebrew/homebrew-portable-ruby/releases/download/2.6.3/portable-ruby-2.6.3.armv6_linux.bottle.tar.gz"
+      ruby_SHA="78e36e4671fd08790bfbfda4408d559341c9872bf48a4f6eab78157a3bf3efa6"
       ;;
   esac
 fi
@@ -73,7 +87,7 @@ fetch() {
   temporary_path="$CACHED_LOCATION.incomplete"
 
   mkdir -p "$HOMEBREW_CACHE"
-  [[ -n "$HOMEBREW_QUIET" ]] || echo "==> Downloading $VENDOR_URL" >&2
+  [[ -n "$HOMEBREW_QUIET" ]] || ohai "Downloading $VENDOR_URL" >&2
   if [[ -f "$CACHED_LOCATION" ]]
   then
     [[ -n "$HOMEBREW_QUIET" ]] || echo "Already downloaded: $CACHED_LOCATION" >&2
@@ -93,7 +107,7 @@ fetch() {
 
     if [[ ! -f "$temporary_path" ]]
     then
-      [[ -n "$HOMEBREW_QUIET" ]] || echo "==> Downloading $VENDOR_URL2" >&2
+      [[ -n "$HOMEBREW_QUIET" ]] || ohai "Downloading $VENDOR_URL2" >&2
       "$HOMEBREW_CURL" "${curl_args[@]}" "$VENDOR_URL2" -o "$temporary_path"
     fi
 
@@ -138,8 +152,8 @@ EOSCRIPT
     odie <<EOS
 Checksum mismatch.
 Expected: $VENDOR_SHA
-Actual: $sha
-Archive: $CACHED_LOCATION
+  Actual: $sha
+ Archive: $CACHED_LOCATION
 To retry an incomplete download, remove the file above.
 EOS
   fi
@@ -147,7 +161,6 @@ EOS
 
 install() {
   local tar_args
-  local verb
 
   if [[ -n "$HOMEBREW_VERBOSE" ]]
   then
@@ -163,25 +176,17 @@ install() {
 
   if [[ -d "$VENDOR_VERSION" ]]
   then
-    verb="reinstall"
     mv "$VENDOR_VERSION" "$VENDOR_VERSION.reinstall"
-  elif [[ -n "$(ls -A .)" ]]
-  then
-    verb="upgrade"
-  else
-    verb="install"
   fi
 
   safe_cd "$VENDOR_DIR"
-  [[ -n "$HOMEBREW_QUIET" ]] || echo "==> Pouring $(basename "$VENDOR_URL")" >&2
+  [[ -n "$HOMEBREW_QUIET" ]] || ohai "Pouring $(basename "$VENDOR_URL")" >&2
   tar "$tar_args" "$CACHED_LOCATION"
   safe_cd "$VENDOR_DIR/portable-$VENDOR_NAME"
 
   if quiet_stderr "./$VENDOR_VERSION/bin/$VENDOR_NAME" --version >/dev/null
   then
     ln -sfn "$VENDOR_VERSION" current
-    # remove old vendor installations by sorting files with modified time.
-    ls -t | grep -Ev "^(current|$VENDOR_VERSION)" | tail -n +4 | xargs rm -rf
     if [[ -d "$VENDOR_VERSION.reinstall" ]]
     then
       rm -rf "$VENDOR_VERSION.reinstall"
@@ -192,7 +197,7 @@ install() {
     then
       mv "$VENDOR_VERSION.reinstall" "$VENDOR_VERSION"
     fi
-    odie "Failed to $verb vendor $VENDOR_NAME."
+    odie "Failed to vendor $VENDOR_NAME $VENDOR_VERSION."
   fi
 
   trap - SIGINT

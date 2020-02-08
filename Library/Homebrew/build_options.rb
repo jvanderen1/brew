@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 class BuildOptions
   # @private
   def initialize(args, options)
@@ -65,7 +67,8 @@ class BuildOptions
     include? "devel"
   end
 
-  # True if a {Formula} is being built with {Formula.stable} instead of {Formula.devel} or {Formula.head}. This is the default.
+  # True if a {Formula} is being built with {Formula.stable} instead of {Formula.devel}
+  # or {Formula.head}. This is the default.
   # <pre>args << "--some-beta" if build.devel?</pre>
   def stable?
     !(head? || devel?)
@@ -96,22 +99,6 @@ class BuildOptions
   # @private
   def unused_options
     @options - @args
-  end
-
-  # @private
-  def invalid_options
-    @args - @options - BuildOptions.formula_install_options
-  end
-
-  # @private
-  def invalid_option_names
-    invalid_options.map(&:flag).sort
-  end
-
-  def self.formula_install_options
-    @formula_install_options ||= ARGV.formula_install_option_names.map do |option_name|
-      Option.new option_name[2..-1]
-    end
   end
 
   private

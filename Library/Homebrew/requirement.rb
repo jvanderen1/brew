@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require "dependable"
 require "dependency"
 require "dependencies"
@@ -12,10 +14,11 @@ class Requirement
   attr_reader :tags, :name, :cask, :download
 
   def initialize(tags = [])
-    @cask ||= self.class.cask
-    @download ||= self.class.download
+    @cask = self.class.cask
+    @download = self.class.download
     tags.each do |tag|
       next unless tag.is_a? Hash
+
       @cask ||= tag[:cask]
       @download ||= tag[:download]
     end
@@ -34,31 +37,34 @@ class Requirement
     s = "#{class_name} unsatisfied!\n"
     if cask
       s += <<~EOS
-        You can install with Homebrew-Cask:
-         brew cask install #{cask}
+        You can install with Homebrew Cask:
+          brew cask install #{cask}
       EOS
     end
 
     if download
       s += <<~EOS
         You can download from:
-         #{download}
+          #{download}
       EOS
     end
     s
   end
 
-  # Overriding #satisfied? is unsupported.
+  # Overriding {#satisfied?} is unsupported.
   # Pass a block or boolean to the satisfy DSL method instead.
   def satisfied?
     satisfy = self.class.satisfy
     return true unless satisfy
+
     @satisfied_result = satisfy.yielder { |p| instance_eval(&p) }
     return false unless @satisfied_result
+
     true
   end
+  alias installed? satisfied?
 
-  # Overriding #fatal? is unsupported.
+  # Overriding {#fatal?} is unsupported.
   # Pass a boolean to the fatal DSL method instead.
   def fatal?
     self.class.fatal || false
@@ -66,6 +72,7 @@ class Requirement
 
   def satisfied_result_parent
     return unless @satisfied_result.is_a?(Pathname)
+
     parent = @satisfied_result.resolved_path.parent
     if parent.to_s =~ %r{^#{Regexp.escape(HOMEBREW_CELLAR)}/([\w+-.@]+)/[^/]+/(s?bin)/?$}
       parent = HOMEBREW_PREFIX/"opt/#{Regexp.last_match(1)}/#{Regexp.last_match(2)}"
@@ -73,7 +80,7 @@ class Requirement
     parent
   end
 
-  # Overriding #modify_build_environment is unsupported.
+  # Overriding {#modify_build_environment} is unsupported.
   # Pass a block to the env DSL method instead.
   def modify_build_environment
     satisfied?
@@ -88,6 +95,7 @@ class Requirement
     return unless parent
     return if ["#{HOMEBREW_PREFIX}/bin", "#{HOMEBREW_PREFIX}/bin"].include?(parent.to_s)
     return if PATH.new(ENV["PATH"]).include?(parent.to_s)
+
     ENV.prepend_path("PATH", parent)
   end
 
@@ -145,12 +153,9 @@ class Requirement
     attr_reader :env_proc, :build
     attr_rw :fatal, :cask, :download
 
-    def default_formula(_val = nil)
-      odisabled "Requirement.default_formula"
-    end
-
     def satisfy(options = nil, &block)
       return @satisfied if options.nil? && !block_given?
+
       options = {} if options.nil?
       @satisfied = Requirement::Satisfier.new(options, &block)
     end
@@ -190,7 +195,7 @@ class Requirement
 
   class << self
     # Expand the requirements of dependent recursively, optionally yielding
-    # [dependent, req] pairs to allow callers to apply arbitrary filters to
+    # `[dependent, req]` pairs to allow callers to apply arbitrary filters to
     # the list.
     # The default filter, which is applied when a block is not given, omits
     # optionals and recommendeds based on what the dependent has asked for.
@@ -203,6 +208,7 @@ class Requirement
       formulae.each do |f|
         f.requirements.each do |req|
           next if prune?(f, req, &block)
+
           reqs << req
         end
       end

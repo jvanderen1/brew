@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 # @private
 class DevelopmentTools
   class << self
@@ -20,7 +22,7 @@ class DevelopmentTools
     end
 
     def installation_instructions
-      "Install Clang or brew install gcc"
+      "Install Clang or run `brew install gcc`."
     end
     alias custom_installation_instructions installation_instructions
 
@@ -35,29 +37,6 @@ class DevelopmentTools
 
     def default_compiler
       :clang
-    end
-
-    def gcc_4_0_build_version
-      @gcc_4_0_build_version ||= begin
-        if (path = locate("gcc-4.0")) &&
-           build_version = `#{path} --version 2>/dev/null`[/build (\d{4,})/, 1]
-          Version.new build_version
-        else
-          Version::NULL
-        end
-      end
-    end
-
-    def gcc_4_2_build_version
-      @gcc_4_2_build_version ||= begin
-        gcc = locate("gcc-4.2") || HOMEBREW_PREFIX/"opt/apple-gcc42/bin/gcc-4.2"
-        if gcc.exist? && !gcc.realpath.basename.to_s.start_with?("llvm") &&
-           build_version = `#{gcc} --version 2>/dev/null`[/build (\d{4,})/, 1]
-          Version.new build_version
-        else
-          Version::NULL
-        end
-      end
     end
 
     def clang_version
@@ -99,7 +78,7 @@ class DevelopmentTools
         path = HOMEBREW_PREFIX/"opt/gcc/bin"/cc
         path = locate(cc) unless path.exist?
         version = if path &&
-                     build_version = `#{path} --version`[/gcc(?:-\d(?:\.\d)? \(.+\))? (\d\.\d\.\d)/, 1]
+                     build_version = `#{path} --version`[/gcc(?:(?:-\d(?:\.\d)?)? \(.+\))? (\d\.\d\.\d)/, 1]
           Version.new build_version
         else
           Version::NULL
@@ -109,7 +88,6 @@ class DevelopmentTools
     end
 
     def clear_version_cache
-      @gcc_4_0_build_version = @gcc_4_2_build_version = nil
       @clang_version = @clang_build_version = nil
       @non_apple_gcc_version = {}
     end

@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require "extend/pathname"
 require "install_renamed"
 
@@ -105,19 +107,20 @@ describe Pathname do
     it "preserves permissions" do
       File.open(file, "w", 0100777) {}
       file.atomic_write("CONTENT")
-      expect(file.stat.mode).to eq(0100777 & ~File.umask)
+      expect(file.stat.mode.to_s(8)).to eq((0100777 & ~File.umask).to_s(8))
     end
 
     it "preserves default permissions" do
       file.atomic_write("CONTENT")
-      sentinel = file.parent.join("sentinel")
+      sentinel = file.dirname.join("sentinel")
       touch sentinel
-      expect(file.stat.mode).to eq(sentinel.stat.mode)
+      expect(file.stat.mode.to_s(8)).to eq(sentinel.stat.mode.to_s(8))
     end
   end
 
   describe "#ensure_writable" do
     it "makes a file writable and restores permissions afterwards" do
+      skip "User is root so everything is writable." if Process.euid.zero?
       touch file
       chmod 0555, file
       expect(file).not_to be_writable
@@ -132,6 +135,16 @@ describe Pathname do
     it "supports common multi-level archives" do
       expect(described_class.new("foo-0.1.tar.gz").extname).to eq(".tar.gz")
       expect(described_class.new("foo-0.1.cpio.gz").extname).to eq(".cpio.gz")
+    end
+
+    it "does not treat version numbers as extensions" do
+      expect(described_class.new("foo-0.1").extname).to eq("")
+      expect(described_class.new("foo-1.0-rc1").extname).to eq("")
+      expect(described_class.new("foo-1.2.3").extname).to eq ""
+    end
+
+    it "supports `.7z` with version numbers" do
+      expect(described_class.new("snap7-full-1.4.2.7z").extname).to eq ".7z"
     end
   end
 
@@ -234,11 +247,19 @@ describe Pathname do
       dst.install_symlink "foo" => "bar"
       expect((dst/"bar").readlink).to eq(described_class.new("foo"))
     end
+
+    it "can install relative symlinks in a symlinked directory" do
+      mkdir_p dst/"1/2"
+      dst.install_symlink "1/2" => "12"
+      expect((dst/"12").readlink).to eq(described_class.new("1/2"))
+      (dst/"12").install_symlink dst/"foo"
+      expect((dst/"12/foo").readlink).to eq(described_class.new("../../foo"))
+    end
   end
 
   describe InstallRenamed do
     before do
-      dst.extend(InstallRenamed)
+      dst.extend(described_class)
     end
 
     it "renames the installed file if it already exists" do

@@ -1,5 +1,7 @@
+# frozen_string_literal: true
+
 # A Messages object collects messages that may need to be displayed together
-# at the end of a multi-step `brew` command run
+# at the end of a multi-step `brew` command run.
 class Messages
   attr_reader :caveats, :formula_count, :install_times
 
@@ -20,12 +22,13 @@ class Messages
 
   def display_messages
     display_caveats
-    display_install_times if ARGV.include?("--display-times")
+    display_install_times if Homebrew.args.display_times?
   end
 
   def display_caveats
     return if @formula_count <= 1
     return if @caveats.empty?
+
     oh1 "Caveats"
     @caveats.each do |c|
       ohai c[:formula], c[:caveats]
@@ -34,9 +37,10 @@ class Messages
 
   def display_install_times
     return if install_times.empty?
+
     oh1 "Installation times"
     install_times.each do |t|
-      puts format("%-20s %10.3f s", t[:formula], t[:time])
+      puts format("%<formula>-20s %<time>10.3f s", t)
     end
   end
 end

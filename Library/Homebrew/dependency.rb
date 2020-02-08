@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require "dependable"
 
 # A dependency on another Homebrew formula.
@@ -7,7 +9,7 @@ class Dependency
 
   attr_reader :name, :tags, :env_proc, :option_names
 
-  DEFAULT_ENV_PROC = proc {}
+  DEFAULT_ENV_PROC = proc {}.freeze
 
   def initialize(name, tags = [], env_proc = DEFAULT_ENV_PROC, option_names = [name])
     raise ArgumentError, "Dependency must have a name!" unless name
@@ -37,7 +39,9 @@ class Dependency
     formula
   end
 
-  delegate installed?: :to_formula
+  def installed?
+    to_formula.latest_version_installed?
+  end
 
   def satisfied?(inherited_options)
     installed? && missing_options(inherited_options).empty?
@@ -71,7 +75,7 @@ class Dependency
 
   class << self
     # Expand the dependencies of dependent recursively, optionally yielding
-    # [dependent, dep] pairs to allow callers to apply arbitrary filters to
+    # `[dependent, dep]` pairs to allow callers to apply arbitrary filters to
     # the list.
     # The default filter, which is applied when a block is not given, omits
     # optionals and recommendeds based on what the dependent has asked for.
@@ -93,11 +97,13 @@ class Dependency
           next
         when :skip
           next if @expand_stack.include? dep.name
+
           expanded_deps.concat(expand(dep.to_formula, &block))
         when :keep_but_prune_recursive_deps
           expanded_deps << dep
         else
           next if @expand_stack.include? dep.name
+
           expanded_deps.concat(expand(dep.to_formula, &block))
           expanded_deps << dep
         end
@@ -167,6 +173,7 @@ class Dependency
     def merge_temporality(deps)
       # Means both build and runtime dependency.
       return [] unless deps.all?(&:build?)
+
       [:build]
     end
   end

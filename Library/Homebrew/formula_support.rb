@@ -1,4 +1,6 @@
-# Used to track formulae that cannot be installed at the same time
+# frozen_string_literal: true
+
+# Used to track formulae that cannot be installed at the same time.
 FormulaConflict = Struct.new(:name, :reason)
 
 # Used to annotate formulae that duplicate macOS provided software
@@ -12,7 +14,7 @@ class KegOnlyReason
   end
 
   def valid?
-    true
+    ![:provided_by_macos, :provided_by_osx, :shadowed_by_macos].include?(@reason)
   end
 
   def to_s
@@ -39,7 +41,7 @@ class KegOnlyReason
   end
 end
 
-# Used to annotate formulae that don't require compiling or cannot build bottle.
+# Used to annotate formulae that don't require compiling or cannot build a bottle.
 class BottleDisableReason
   SUPPORTED_TYPES = [:unneeded, :disable].freeze
 
@@ -58,6 +60,9 @@ class BottleDisableReason
 
   def to_s
     return "This formula doesn't require compiling." if unneeded?
+
     @reason
   end
 end
+
+require "extend/os/formula_support"

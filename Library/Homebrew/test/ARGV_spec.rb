@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require "extend/ARGV"
 
 describe HomebrewArgvExtension do
@@ -25,27 +27,6 @@ describe HomebrewArgvExtension do
     end
   end
 
-  describe "#kegs" do
-    context "when there are matching Kegs" do
-      before do
-        keg = HOMEBREW_CELLAR + "mxcl/10.0"
-        keg.mkpath
-      end
-
-      it "returns an array of Kegs" do
-        expect(subject.kegs.length).to eq 1
-      end
-    end
-
-    context "when there are no matching Kegs" do
-      let(:argv) { [] }
-
-      it "returns an empty array" do
-        expect(subject.kegs).to be_empty
-      end
-    end
-  end
-
   describe "#named" do
     let(:argv) { ["foo", "--debug", "-v"] }
 
@@ -66,7 +47,7 @@ describe HomebrewArgvExtension do
     let(:argv) { ["--foo", "-vds", "a", "b", "cdefg"] }
 
     it "returns an array of option arguments" do
-      expect(subject.options_only).to eq ["--foo", "-vds"]
+      expect(subject.send("options_only")).to eq ["--foo", "-vds"]
     end
   end
 
@@ -91,13 +72,13 @@ describe HomebrewArgvExtension do
 
     it "returns true if the given string is a switch" do
       %w[n s i].each do |s|
-        expect(subject.switch?(s)).to be true
+        expect(subject.send("switch?", s)).to be true
       end
     end
 
     it "returns false if the given string is not a switch" do
       %w[b ns bar --bar -n a bad arg].each do |s|
-        expect(subject.switch?(s)).to be false
+        expect(subject.send("switch?", s)).to be false
       end
     end
   end
@@ -106,18 +87,18 @@ describe HomebrewArgvExtension do
     let(:argv) { ["--foo", "-bq", "--bar"] }
 
     it "returns true if the given string is a flag" do
-      expect(subject.flag?("--foo")).to eq true
-      expect(subject.flag?("--bar")).to eq true
+      expect(subject.send("flag?", "--foo")).to eq true
+      expect(subject.send("flag?", "--bar")).to eq true
     end
 
     it "returns true if there is a switch with the same initial character" do
-      expect(subject.flag?("--baz")).to eq true
-      expect(subject.flag?("--qux")).to eq true
+      expect(subject.send("flag?", "--baz")).to eq true
+      expect(subject.send("flag?", "--qux")).to eq true
     end
 
     it "returns false if there is no matching flag" do
-      expect(subject.flag?("--frotz")).to eq false
-      expect(subject.flag?("--debug")).to eq false
+      expect(subject.send("flag?", "--frotz")).to eq false
+      expect(subject.send("flag?", "--debug")).to eq false
     end
   end
 
@@ -131,20 +112,6 @@ describe HomebrewArgvExtension do
 
     it "returns nil if there is no matching argument" do
       expect(subject.value("baz")).to be nil
-    end
-  end
-
-  describe "#values" do
-    let(:argv) { ["--foo=", "--bar=a", "--baz=b,c"] }
-
-    it "returns the value for a given argument" do
-      expect(subject.values("foo")).to eq []
-      expect(subject.values("bar")).to eq ["a"]
-      expect(subject.values("baz")).to eq ["b", "c"]
-    end
-
-    it "returns nil if there is no matching argument" do
-      expect(subject.values("qux")).to be nil
     end
   end
 end

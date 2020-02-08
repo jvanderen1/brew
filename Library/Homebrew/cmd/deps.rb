@@ -1,134 +1,135 @@
-#:  * `deps` [`--1`] [`-n`] [`--union`] [`--full-name`] [`--installed`] [`--include-build`] [`--include-optional`] [`--skip-recommended`] [`--include-requirements`] <formulae>:
-#:    Show dependencies for <formulae>. When given multiple formula arguments,
-#:    show the intersection of dependencies for <formulae>.
-#:
-#:    If `--1` is passed, only show dependencies one level down, instead of
-#:    recursing.
-#:
-#:    If `-n` is passed, show dependencies in topological order.
-#:
-#:    If `--union` is passed, show the union of dependencies for <formulae>,
-#:    instead of the intersection.
-#:
-#:    If `--full-name` is passed, list dependencies by their full name.
-#:
-#:    If `--installed` is passed, only list those dependencies that are
-#:    currently installed.
-#:
-#:    By default, `deps` shows required and recommended dependencies for
-#:    <formulae>. To include the `:build` type dependencies, pass `--include-build`.
-#:    Similarly, pass `--include-optional` to include `:optional` dependencies or
-#:    `--include-test` to include (non-recursive) `:test` dependencies.
-#:    To skip `:recommended` type dependencies, pass `--skip-recommended`.
-#:    To include requirements in addition to dependencies, pass `--include-requirements`.
-#:
-#:  * `deps` `--tree` [`--1`] [<filters>] [`--annotate`] (<formulae>|`--installed`):
-#:    Show dependencies as a tree. When given multiple formula arguments, output
-#:    individual trees for every formula.
-#:
-#:    If `--1` is passed, only one level of children is displayed.
-#:
-#:    If `--installed` is passed, output a tree for every installed formula.
-#:
-#:    The <filters> placeholder is any combination of options `--include-build`,
-#:    `--include-optional`, `--include-test`, `--skip-recommended`, and
-#:    `--include-requirements` as documented above.
-#:
-#:    If `--annotate` is passed, the build, optional, and recommended dependencies
-#:    are marked as such in the output.
-#:
-#:  * `deps` [<filters>] (`--installed`|`--all`):
-#:    Show dependencies for installed or all available formulae. Every line of
-#:    output starts with the formula name, followed by a colon and all direct
-#:    dependencies of that formula.
-#:
-#:    The <filters> placeholder is any combination of options `--include-build`,
-#:    `--include-optional`, `--include-test`, and `--skip-recommended` as
-#:    documented above.
-
-# The undocumented `--for-each` option will switch into the mode used by `deps --all`,
-# but only list dependencies for specified formula, one specified formula per line.
-# This is used for debugging the `--installed`/`--all` display mode.
-
-# encoding: UTF-8
+# frozen_string_literal: true
 
 require "formula"
 require "ostruct"
+require "cli/parser"
 
 module Homebrew
   module_function
 
-  def deps
-    mode = OpenStruct.new(
-      installed?: ARGV.include?("--installed"),
-      tree?: ARGV.include?("--tree"),
-      all?: ARGV.include?("--all"),
-      topo_order?: ARGV.include?("-n"),
-      union?: ARGV.include?("--union"),
-      for_each?: ARGV.include?("--for-each"),
-    )
+  def deps_args
+    Homebrew::CLI::Parser.new do
+      usage_banner <<~EOS
+        `deps` [<options>] [<formula>]
 
-    if mode.tree?
-      if mode.installed?
-        puts_deps_tree Formula.installed.sort, !ARGV.one?
+        Show dependencies for <formula>. Additional options specific to <formula>
+        may be appended to the command. When given multiple formula arguments,
+        show the intersection of dependencies for each formula.
+      EOS
+      switch "-n",
+             description: "Sort dependencies in topological order."
+      switch "--1",
+             description: "Only show dependencies one level down, instead of recursing."
+      switch "--union",
+             description: "Show the union of dependencies for multiple <formula>, instead of the intersection."
+      switch "--full-name",
+             description: "List dependencies by their full name."
+      switch "--include-build",
+             description: "Include `:build` dependencies for <formula>."
+      switch "--include-optional",
+             description: "Include `:optional` dependencies for <formula>."
+      switch "--include-test",
+             description: "Include `:test` dependencies for <formula> (non-recursive)."
+      switch "--skip-recommended",
+             description: "Skip `:recommended` dependencies for <formula>."
+      switch "--include-requirements",
+             description: "Include requirements in addition to dependencies for <formula>."
+      switch "--tree",
+             description: "Show dependencies as a tree. When given multiple formula arguments, "\
+                          "show individual trees for each formula."
+      switch "--annotate",
+             description: "Mark any build, test, optional, or recommended dependencies as "\
+                          "such in the output."
+      switch "--installed",
+             description: "List dependencies for formulae that are currently installed. If <formula> is "\
+                          "specified, list only its dependencies that are currently installed."
+      switch "--all",
+             description: "List dependencies for all available formulae."
+      switch "--for-each",
+             description: "Switch into the mode used by the `--all` option, but only list dependencies "\
+                          "for each provided <formula>, one formula per line. This is used for "\
+                          "debugging the `--installed`/`--all` display mode."
+      switch :verbose
+      switch :debug
+      conflicts "--installed", "--all"
+      formula_options
+    end
+  end
+
+  def deps
+    deps_args.parse
+
+    Formulary.enable_factory_cache!
+
+    recursive = !args.send("1?")
+
+    if args.tree?
+      if args.installed?
+        puts_deps_tree Formula.installed.sort, recursive
       else
-        raise FormulaUnspecifiedError if ARGV.named.empty?
-        puts_deps_tree ARGV.formulae, !ARGV.one?
+        raise FormulaUnspecifiedError if Homebrew.args.remaining.empty?
+
+        puts_deps_tree Homebrew.args.formulae, recursive
       end
       return
-    elsif mode.all?
-      puts_deps Formula.sort
+    elsif args.all?
+      puts_deps Formula.sort, recursive
       return
-    elsif !ARGV.named.empty? && mode.for_each?
-      puts_deps ARGV.formulae
-      return
-    end
-
-    @only_installed_arg = ARGV.include?("--installed") &&
-                          !ARGV.include?("--include-build") &&
-                          !ARGV.include?("--include-test") &&
-                          !ARGV.include?("--include-optional") &&
-                          !ARGV.include?("--skip-recommended")
-
-    if ARGV.named.empty?
-      raise FormulaUnspecifiedError unless mode.installed?
-      puts_deps Formula.installed.sort
+    elsif !Homebrew.args.remaining.empty? && args.for_each?
+      puts_deps Homebrew.args.formulae, recursive
       return
     end
 
-    all_deps = deps_for_formulae(ARGV.formulae, !ARGV.one?, &(mode.union? ? :| : :&))
+    installed = args.installed? || ARGV.formulae.all?(&:opt_or_installed_prefix_keg)
+
+    @use_runtime_dependencies = installed && recursive &&
+                                !args.include_build? &&
+                                !args.include_test? &&
+                                !args.include_optional? &&
+                                !args.skip_recommended?
+
+    if Homebrew.args.remaining.empty?
+      raise FormulaUnspecifiedError unless args.installed?
+
+      puts_deps Formula.installed.sort, recursive
+      return
+    end
+
+    all_deps = deps_for_formulae(Homebrew.args.formulae, recursive, &(args.union? ? :| : :&))
     all_deps = condense_requirements(all_deps)
-    all_deps.select!(&:installed?) if mode.installed?
+    all_deps.select!(&:installed?) if args.installed?
     all_deps.map!(&method(:dep_display_name))
     all_deps.uniq!
-    all_deps.sort! unless mode.topo_order?
+    all_deps.sort! unless args.n?
     puts all_deps
   end
 
   def condense_requirements(deps)
-    return deps if ARGV.include?("--include-requirements")
+    return deps if args.include_requirements?
+
     deps.select { |dep| dep.is_a? Dependency }
   end
 
   def dep_display_name(dep)
     str = if dep.is_a? Requirement
-      if ARGV.include?("--include-requirements")
+      if args.include_requirements?
         ":#{dep.display_s}"
       else
         # This shouldn't happen, but we'll put something here to help debugging
         "::#{dep.name}"
       end
-    elsif ARGV.include?("--full-name")
+    elsif args.full_name?
       dep.to_formula.full_name
     else
       dep.name
     end
 
-    if ARGV.include?("--annotate")
-      str = "#{str}  [build]" if dep.build?
-      str = "#{str}  [test]" if dep.test?
-      str = "#{str}  [optional" if dep.optional?
-      str = "#{str}  [recommended]" if dep.recommended?
+    if args.annotate?
+      str = "#{str} " if args.tree?
+      str = "#{str} [build]" if dep.build?
+      str = "#{str} [test]" if dep.test?
+      str = "#{str} [optional]" if dep.optional?
+      str = "#{str} [recommended]" if dep.recommended?
     end
 
     str
@@ -137,7 +138,7 @@ module Homebrew
   def deps_for_formula(f, recursive = false)
     includes, ignores = argv_includes_ignores(ARGV)
 
-    deps = f.runtime_dependencies if @only_installed_arg
+    deps = f.runtime_dependencies if @use_runtime_dependencies
 
     if recursive
       deps ||= recursive_includes(Dependency,  f, includes, ignores)
@@ -151,12 +152,12 @@ module Homebrew
   end
 
   def deps_for_formulae(formulae, recursive = false, &block)
-    formulae.map { |f| deps_for_formula(f, recursive) }.inject(&block)
+    formulae.map { |f| deps_for_formula(f, recursive) }.reduce(&block)
   end
 
-  def puts_deps(formulae)
+  def puts_deps(formulae, recursive = false)
     formulae.each do |f|
-      deps = deps_for_formula(f)
+      deps = deps_for_formula(f, recursive)
       deps = condense_requirements(deps)
       deps.sort_by!(&:name)
       deps.map!(&method(:dep_display_name))
@@ -174,17 +175,15 @@ module Homebrew
   end
 
   def recursive_deps_tree(f, prefix, recursive)
-    reqs = f.requirements
-    deps = f.deps
+    includes, ignores = argv_includes_ignores(ARGV)
+    deps = reject_ignores(f.deps, ignores, includes)
+    reqs = reject_ignores(f.requirements, ignores, includes)
     dependables = reqs + deps
-    dependables.reject!(&:optional?) unless ARGV.include?("--include-optional")
-    dependables.reject!(&:build?) unless ARGV.include?("--include-build")
-    dependables.reject!(&:test?) unless ARGV.include?("--include-test")
-    dependables.reject!(&:recommended?) if ARGV.include?("--skip-recommended")
+
     max = dependables.length - 1
     @dep_stack.push f.name
     dependables.each_with_index do |dep, i|
-      next if !ARGV.include?("--include-requirements") && dep.is_a?(Requirement)
+      next if !args.include_requirements? && dep.is_a?(Requirement)
 
       tree_lines = if i == max
         "└──"
@@ -205,9 +204,7 @@ module Homebrew
         "│   "
       end
 
-      if dep.is_a? Dependency
-        recursive_deps_tree(Formulary.factory(dep.name), prefix + prefix_addition, true)
-      end
+      recursive_deps_tree(Formulary.factory(dep.name), prefix + prefix_addition, true) if dep.is_a? Dependency
     end
 
     @dep_stack.pop

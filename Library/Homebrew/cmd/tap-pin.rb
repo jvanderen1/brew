@@ -1,16 +1,18 @@
-#:  * `tap-pin` <tap>:
-#:    Pin <tap>, prioritizing its formulae over core when formula names are supplied
-#:    by the user. See also `tap-unpin`.
+# frozen_string_literal: true
+
+require "cli/parser"
 
 module Homebrew
   module_function
 
-  def tap_pin
-    ARGV.named.each do |name|
-      tap = Tap.fetch(name)
-      raise "pinning #{tap} is not allowed" if tap.core_tap?
-      tap.pin
-      ohai "Pinned #{tap}"
+  def tap_pin_args
+    Homebrew::CLI::Parser.new do
+      hide_from_man_page!
     end
+  end
+
+  def tap_pin
+    odisabled "brew tap-pin user/tap",
+              "fully-scoped user/tap/formula naming"
   end
 end

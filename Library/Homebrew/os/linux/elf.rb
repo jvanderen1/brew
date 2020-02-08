@@ -1,7 +1,9 @@
+# frozen_string_literal: true
+
+# @see https://en.wikipedia.org/wiki/Executable_and_Linkable_Format#File_header
 module ELFShim
-  # See: https://en.wikipedia.org/wiki/Executable_and_Linkable_Format#File_header
   MAGIC_NUMBER_OFFSET = 0
-  MAGIC_NUMBER_ASCII = "\x7fELF".freeze
+  MAGIC_NUMBER_ASCII = "\x7fELF"
 
   OS_ABI_OFFSET = 0x07
   OS_ABI_SYSTEM_V = 0
@@ -19,11 +21,11 @@ module ELFShim
   ARCHITECTURE_AARCH64 = 0xB7
 
   def read_uint8(offset)
-    read(1, offset).unpack("C").first
+    read(1, offset).unpack1("C")
   end
 
   def read_uint16(offset)
-    read(2, offset).unpack("v").first
+    read(2, offset).unpack1("v")
   end
 
   def elf?
@@ -66,10 +68,28 @@ module ELFShim
     elf_type == :executable
   end
 
+  def with_interpreter?
+    return @with_interpreter if defined? @with_interpreter
+
+    @with_interpreter = if binary_executable?
+      true
+    elsif dylib?
+      if which "readelf"
+        Utils.popen_read("readelf", "-l", to_path).include?(" INTERP ")
+      elsif which "file"
+        Utils.popen_read("file", "-L", "-b", to_path).include?(" interpreter ")
+      else
+        raise "Please install either readelf (from binutils) or file."
+      end
+    else
+      false
+    end
+  end
+
   def dynamic_elf?
     return @dynamic_elf if defined? @dynamic_elf
 
-    if which "readelf"
+    @dynamic_elf = if which "readelf"
       Utils.popen_read("readelf", "-l", to_path).include?(" DYNAMIC ")
     elsif which "file"
       !Utils.popen_read("file", "-L", "-b", to_path)[/dynamic|shared/].nil?
@@ -94,10 +114,12 @@ module ELFShim
       ldd_paths = ldd_output.map do |line|
         match = line.match(/\t.+ => (.+) \(.+\)|\t(.+) => not found/)
         next unless match
+
         match.captures.compact.first
       end.compact
       @dylibs = ldd_paths.select do |ldd_path|
         next true unless ldd_path.start_with? "/"
+
         needed.include? File.basename(ldd_path)
       end
     end
@@ -115,6 +137,8 @@ module ELFShim
     end
 
     def needed_libraries_using_patchelf(path)
+      return [nil, []] unless path.dynamic_elf?
+
       patchelf = DevelopmentTools.locate "patchelf"
       if path.dylib?
         command = [patchelf, "--print-soname", path.expand_path.to_s]
@@ -129,10 +153,13 @@ module ELFShim
       soname = nil
       needed = []
       command = ["readelf", "-d", path.expand_path.to_s]
-      lines = Utils.safe_popen_read(*command).split("\n")
+      lines = Utils.popen_read(*command, err: :out).split("\n")
       lines.each do |s|
+        next if s.start_with?("readelf: Warning: possibly corrupt ELF header")
+
         filename = s[/\[(.*)\]/, 1]
         next if filename.nil?
+
         if s.include? "(SONAME)"
           soname = filename
         elsif s.include? "(NEEDED)"

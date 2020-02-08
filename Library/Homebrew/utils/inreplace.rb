@@ -1,10 +1,12 @@
+# frozen_string_literal: true
+
 module Utils
   class InreplaceError < RuntimeError
     def initialize(errors)
-      formatted_errors = errors.inject("inreplace failed\n") do |s, (path, errs)|
+      formatted_errors = errors.reduce(+"inreplace failed\n") do |s, (path, errs)|
         s << "#{path}:\n" << errs.map { |e| "  #{e}\n" }.join
       end
-      super formatted_errors
+      super formatted_errors.freeze
     end
   end
 
@@ -13,11 +15,14 @@ module Utils
     # prefer a patch but if you need the `prefix` of this formula in the
     # patch you have to resort to `inreplace`, because in the patch
     # you don't have access to any var defined by the formula. Only
-    # HOMEBREW_PREFIX is available in the embedded patch.
-    # inreplace supports regular expressions.
+    # `HOMEBREW_PREFIX` is available in the embedded patch.
+    #
+    # `inreplace` supports regular expressions:
     # <pre>inreplace "somefile.cfg", /look[for]what?/, "replace by #{bin}/tool"</pre>
     def inreplace(paths, before = nil, after = nil, audit_result = true)
       errors = {}
+
+      errors["`paths` (first) parameter"] = ["`paths` was empty"] if paths.blank?
 
       Array(paths).each do |path|
         s = File.open(path, "rb", &:read).extend(StringInreplaceExtension)

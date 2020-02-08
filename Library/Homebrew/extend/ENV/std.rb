@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require "hardware"
 require "extend/ENV/shared"
 
@@ -6,8 +8,7 @@ module Stdenv
   include SharedEnvExtension
 
   # @private
-  SAFE_CFLAGS_FLAGS = "-w -pipe".freeze
-  DEFAULT_FLAGS = "-march=core2 -msse4".freeze
+  SAFE_CFLAGS_FLAGS = "-w -pipe"
 
   # @private
   def setup_build_environment(formula = nil)
@@ -46,6 +47,7 @@ module Stdenv
     send(compiler)
 
     return unless cc =~ GNU_GCC_REGEXP
+
     gcc_formula = gcc_version_formula($&)
     append_path "PATH", gcc_formula.opt_bin.to_s
   end
@@ -100,16 +102,6 @@ module Stdenv
     dir/base.to_s.sub("gcc", "g++").sub("clang", "clang++")
   end
 
-  def gcc_4_0
-    super
-    set_cpu_cflags "-march=nocona -mssse3"
-  end
-
-  def gcc_4_2
-    super
-    set_cpu_cflags
-  end
-
   GNU_GCC_VERSIONS.each do |n|
     define_method(:"gcc-#{n}") do
       super()
@@ -122,23 +114,8 @@ module Stdenv
     replace_in_cflags(/-Xarch_#{Hardware::CPU.arch_32_bit} (-march=\S*)/, '\1')
     # Clang mistakenly enables AES-NI on plain Nehalem
     map = Hardware::CPU.optimization_flags
-    map = map.merge(nehalem: "-march=native -Xclang -target-feature -Xclang -aes")
-    set_cpu_cflags "-march=native", map
-  end
-
-  def minimal_optimization
-    define_cflags "-Os #{SAFE_CFLAGS_FLAGS}"
-  end
-  alias generic_minimal_optimization minimal_optimization
-
-  def no_optimization
-    define_cflags SAFE_CFLAGS_FLAGS
-  end
-  alias generic_no_optimization no_optimization
-
-  # we've seen some packages fail to build when warnings are disabled!
-  def enable_warnings
-    remove_from_cflags "-w"
+                       .merge(nehalem: "-march=nehalem -Xclang -target-feature -Xclang -aes")
+    set_cpu_cflags map
   end
 
   def m64
@@ -159,19 +136,14 @@ module Stdenv
 
     return if compiler_any_clang?
     return unless Hardware.is_32_bit?
-    # Can't mix "-march" for a 32-bit CPU  with "-arch x86_64"
+
+    # Can't mix "-march" for a 32-bit CPU with "-arch x86_64"
     replace_in_cflags(/-march=\S*/, "-Xarch_#{Hardware::CPU.arch_32_bit} \\0")
   end
 
   def cxx11
-    if compiler == :clang
-      append "CXX", "-std=c++11"
-      append "CXX", "-stdlib=libc++"
-    elsif compiler_with_cxx11_support?(compiler)
-      append "CXX", "-std=c++11"
-    else
-      raise "The selected compiler doesn't support C++11: #{compiler}"
-    end
+    append "CXX", "-std=c++11"
+    libcxx
   end
 
   def libcxx
@@ -197,7 +169,7 @@ module Stdenv
   # Sets architecture-specific flags for every environment variable
   # given in the list `flags`.
   # @private
-  def set_cpu_flags(flags, default = DEFAULT_FLAGS, map = Hardware::CPU.optimization_flags)
+  def set_cpu_flags(flags, map = Hardware::CPU.optimization_flags) # rubocop:disable Naming/AccessorMethodName
     cflags =~ /(-Xarch_#{Hardware::CPU.arch_32_bit} )-march=/
     xarch = Regexp.last_match(1).to_s
     remove flags, /(-Xarch_#{Hardware::CPU.arch_32_bit} )?-march=\S*/
@@ -205,29 +177,14 @@ module Stdenv
     remove flags, /-mssse3/
     remove flags, /-msse4(\.\d)?/
     append flags, xarch unless xarch.empty?
-    append flags, map.fetch(effective_arch, default)
+    append flags, map.fetch(effective_arch)
   end
-  alias generic_set_cpu_flags set_cpu_flags
 
   def x11; end
 
   # @private
-  def effective_arch
-    if ARGV.build_bottle?
-      ARGV.bottle_arch || Hardware.oldest_cpu
-    elsif Hardware::CPU.intel? && !Hardware::CPU.sse4?
-      # If the CPU doesn't support SSE4, we cannot trust -march=native or
-      # -march=<cpu family> to do the right thing because we might be running
-      # in a VM or on a Hackintosh.
-      Hardware.oldest_cpu
-    else
-      Hardware::CPU.family
-    end
-  end
-
-  # @private
-  def set_cpu_cflags(default = DEFAULT_FLAGS, map = Hardware::CPU.optimization_flags)
-    set_cpu_flags CC_FLAG_VARS, default, map
+  def set_cpu_cflags(map = Hardware::CPU.optimization_flags) # rubocop:disable Naming/AccessorMethodName
+    set_cpu_flags CC_FLAG_VARS, map
   end
 
   def make_jobs

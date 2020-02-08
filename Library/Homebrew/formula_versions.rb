@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require "formula"
 
 class FormulaVersions
@@ -42,7 +44,7 @@ class FormulaVersions
   rescue *IGNORED_EXCEPTIONS => e
     # We rescue these so that we can skip bad versions and
     # continue walking the history
-    ohai "#{e} in #{name} at revision #{rev}", e.backtrace if ARGV.debug?
+    odebug "#{e} in #{name} at revision #{rev}", e.backtrace if ARGV.debug?
   rescue FormulaUnavailableError
     nil
   ensure
@@ -71,6 +73,7 @@ class FormulaVersions
       formula_at_revision(rev) do |f|
         [:stable, :devel].each do |spec_sym|
           next unless spec = f.send(spec_sym)
+
           map[spec_sym] ||= { version: spec.version, checksum: spec.checksum }
         end
       end
@@ -91,7 +94,7 @@ class FormulaVersions
     attributes.each do |attribute|
       attributes_map[attribute] ||= {
         stable: {},
-        devel: {},
+        devel:  {},
       }
     end
 
@@ -120,6 +123,7 @@ class FormulaVersions
       map[:stable][f.stable.version] << f.send(attribute)
     end
     return unless f.devel
+
     map[:devel][f.devel.version] ||= []
     map[:devel][f.devel.version] << f.send(attribute)
   end

@@ -1,11 +1,13 @@
-describe Hbc::Artifact::App, :cask do
-  let(:cask) { Hbc::CaskLoader.load(cask_path("local-caffeine")) }
+# frozen_string_literal: true
+
+describe Cask::Artifact::App, :cask do
+  let(:cask) { Cask::CaskLoader.load(cask_path("local-caffeine")) }
   let(:command) { SystemCommand }
   let(:force) { false }
   let(:app) { cask.artifacts.find { |a| a.is_a?(described_class) } }
 
   let(:source_path) { cask.staged_path.join("Caffeine.app") }
-  let(:target_path) { Hbc::Config.global.appdir.join("Caffeine.app") }
+  let(:target_path) { cask.config.appdir.join("Caffeine.app") }
 
   let(:install_phase) { app.install_phase(command: command, force: force) }
   let(:uninstall_phase) { app.uninstall_phase(command: command, force: force) }
@@ -19,14 +21,14 @@ describe Hbc::Artifact::App, :cask do
       install_phase
 
       expect(target_path).to be_a_directory
-      expect(source_path).not_to exist
+      expect(source_path).to be_a_symlink
     end
 
     describe "when app is in a subdirectory" do
       let(:cask) {
-        Hbc::Cask.new("subdir") do
+        Cask::Cask.new("subdir") do
           url "file://#{TEST_FIXTURE_DIR}/cask/caffeine.zip"
-          homepage "http://example.com/local-caffeine"
+          homepage "https://brew.sh/local-caffeine"
           version "1.2.3"
           sha256 "67cdb8a02803ef37fdbf7e0be205863172e41a561ca446cd84f0d7ab35a99d94"
           app "subdir/Caffeine.app"
@@ -40,7 +42,7 @@ describe Hbc::Artifact::App, :cask do
         install_phase
 
         expect(target_path).to be_a_directory
-        expect(appsubdir.join("Caffeine.app")).not_to exist
+        expect(appsubdir.join("Caffeine.app")).to be_a_symlink
       end
     end
 
@@ -51,9 +53,9 @@ describe Hbc::Artifact::App, :cask do
       install_phase
 
       expect(target_path).to be_a_directory
-      expect(source_path).not_to exist
+      expect(source_path).to be_a_symlink
 
-      expect(Hbc::Config.global.appdir.join("Caffeine Deluxe.app")).not_to exist
+      expect(cask.config.appdir.join("Caffeine Deluxe.app")).not_to exist
       expect(cask.staged_path.join("Caffeine Deluxe.app")).to exist
     end
 
@@ -63,7 +65,10 @@ describe Hbc::Artifact::App, :cask do
       end
 
       it "avoids clobbering an existing app" do
-        expect { install_phase }.to raise_error(Hbc::CaskError, "It seems there is already an App at '#{target_path}'.")
+        expect { install_phase }.to raise_error(
+          Cask::CaskError,
+          "It seems there is already an App at '#{target_path}'.",
+        )
 
         expect(source_path).to be_a_directory
         expect(target_path).to be_a_directory
@@ -77,7 +82,7 @@ describe Hbc::Artifact::App, :cask do
         let(:force) { true }
 
         before do
-          allow(Hbc::Utils).to receive(:current_user).and_return("fake_user")
+          allow(User).to receive(:current).and_return(User.new("fake_user"))
         end
 
         describe "target is both writable and user-owned" do
@@ -95,7 +100,7 @@ describe Hbc::Artifact::App, :cask do
               .to output(stdout).to_stdout
               .and output(stderr).to_stderr
 
-            expect(source_path).not_to exist
+            expect(source_path).to be_a_symlink
             expect(target_path).to be_a_directory
 
             contents_path = target_path.join("Contents/Info.plist")
@@ -109,13 +114,26 @@ describe Hbc::Artifact::App, :cask do
             FileUtils.chmod 0555, target_path
           end
 
+          after do
+            FileUtils.chmod 0755, target_path
+          end
+
           it "overwrites the existing app" do
-            expect(command).to receive(:run).with("/bin/chmod", args: ["-R", "--", "u+rwx", target_path], must_succeed: false)
-              .and_call_original
-            expect(command).to receive(:run).with("/bin/chmod", args: ["-R", "-N", target_path], must_succeed: false)
-              .and_call_original
-            expect(command).to receive(:run).with("/usr/bin/chflags", args: ["-R", "--", "000", target_path], must_succeed: false)
-              .and_call_original
+            expect(command).to receive(:run).with(
+              "/bin/chmod", args: [
+                "-R", "--", "u+rwx", target_path
+              ], must_succeed: false
+            ).and_call_original
+            expect(command).to receive(:run).with(
+              "/bin/chmod", args: [
+                "-R", "-N", target_path
+              ], must_succeed: false
+            ).and_call_original
+            expect(command).to receive(:run).with(
+              "/usr/bin/chflags", args: [
+                "-R", "--", "000", target_path
+              ], must_succeed: false
+            ).and_call_original
 
             stdout = <<~EOS
               ==> Removing App '#{target_path}'.
@@ -130,15 +148,11 @@ describe Hbc::Artifact::App, :cask do
               .to output(stdout).to_stdout
               .and output(stderr).to_stderr
 
-            expect(source_path).not_to exist
+            expect(source_path).to be_a_symlink
             expect(target_path).to be_a_directory
 
             contents_path = target_path.join("Contents/Info.plist")
             expect(contents_path).to exist
-          end
-
-          after do
-            FileUtils.chmod 0755, target_path
           end
         end
       end
@@ -154,7 +168,9 @@ describe Hbc::Artifact::App, :cask do
       end
 
       it "leaves the target alone" do
-        expect { install_phase }.to raise_error(Hbc::CaskError, "It seems there is already an App at '#{target_path}'.")
+        expect { install_phase }.to raise_error(
+          Cask::CaskError, "It seems there is already an App at '#{target_path}'."
+        )
         expect(target_path).to be_a_symlink
       end
 
@@ -175,7 +191,7 @@ describe Hbc::Artifact::App, :cask do
             .to output(stdout).to_stdout
             .and output(stderr).to_stderr
 
-          expect(source_path).not_to exist
+          expect(source_path).to be_a_symlink
           expect(target_path).to be_a_directory
 
           contents_path = target_path.join("Contents/Info.plist")
@@ -189,7 +205,7 @@ describe Hbc::Artifact::App, :cask do
 
       message = "It seems the App source '#{source_path}' is not there."
 
-      expect { install_phase }.to raise_error(Hbc::CaskError, message)
+      expect { install_phase }.to raise_error(Cask::CaskError, message)
     end
   end
 

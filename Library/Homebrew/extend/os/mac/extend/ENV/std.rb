@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 module Stdenv
   # @private
 
@@ -27,62 +29,24 @@ module Stdenv
 
     append_path "ACLOCAL_PATH", "#{MacOS::X11.share}/aclocal"
 
-    if MacOS::XQuartz.provided_by_apple? && !MacOS::CLT.installed?
-      append_path "CMAKE_PREFIX_PATH", "#{MacOS.sdk_path}/usr/X11"
-    end
-
     append "CFLAGS", "-I#{MacOS::X11.include}" unless MacOS::CLT.installed?
   end
 
   def setup_build_environment(formula = nil)
     generic_setup_build_environment formula
 
-    if MacOS.version >= :mountain_lion
-      # Mountain Lion's sed is stricter, and errors out when
-      # it encounters files with mixed character sets
-      delete("LC_ALL")
-      self["LC_CTYPE"] = "C"
-    end
+    # sed is strict, and errors out when it encounters files with
+    # mixed character sets
+    delete("LC_ALL")
+    self["LC_CTYPE"] = "C"
 
     # Add lib and include etc. from the current macosxsdk to compiler flags:
     macosxsdk MacOS.version
 
-    if MacOS::Xcode.without_clt?
-      append_path "PATH", "#{MacOS::Xcode.prefix}/usr/bin"
-      append_path "PATH", "#{MacOS::Xcode.toolchain_path}/usr/bin"
-    end
+    return unless MacOS::Xcode.without_clt?
 
-    # Leopard's ld needs some convincing that it's building 64-bit
-    # See: https://github.com/mistydemeo/tigerbrew/issues/59
-    return unless MacOS.version == :leopard && MacOS.prefer_64_bit?
-    append "LDFLAGS", "-arch #{Hardware::CPU.arch_64_bit}"
-
-    # Many, many builds are broken thanks to Leopard's buggy ld.
-    # Our ld64 fixes many of those builds, though of course we can't
-    # depend on it already being installed to build itself.
-    ld64 if Formula["ld64"].installed?
-  end
-
-  # Sets architecture-specific flags for every environment variable
-  # given in the list `flags`.
-  # @private
-  def set_cpu_flags(flags, default = DEFAULT_FLAGS, map = Hardware::CPU.optimization_flags)
-    generic_set_cpu_flags(flags, default, map)
-
-    # Works around a buggy system header on Tiger
-    append flags, "-faltivec" if MacOS.version == :tiger
-  end
-
-  def minimal_optimization
-    generic_minimal_optimization
-
-    macosxsdk unless MacOS::CLT.installed?
-  end
-
-  def no_optimization
-    generic_no_optimization
-
-    macosxsdk unless MacOS::CLT.installed?
+    append_path "PATH", "#{MacOS::Xcode.prefix}/usr/bin"
+    append_path "PATH", "#{MacOS::Xcode.toolchain_path}/usr/bin"
   end
 
   def remove_macosxsdk(version = MacOS.version)
@@ -93,7 +57,8 @@ module Stdenv
     delete("CPATH")
     remove "LDFLAGS", "-L#{HOMEBREW_PREFIX}/lib"
 
-    return unless (sdk = MacOS.sdk_path(version)) && !MacOS::CLT.installed?
+    return unless (sdk = MacOS.sdk_path_if_needed(version))
+
     delete("SDKROOT")
     remove_from_cflags "-isysroot #{sdk}"
     remove "CPPFLAGS", "-isysroot #{sdk}"
@@ -115,7 +80,8 @@ module Stdenv
     self["CPATH"] = "#{HOMEBREW_PREFIX}/include"
     prepend "LDFLAGS", "-L#{HOMEBREW_PREFIX}/lib"
 
-    return unless (sdk = MacOS.sdk_path(version)) && !MacOS::CLT.installed?
+    return unless (sdk = MacOS.sdk_path_if_needed(version))
+
     # Extra setup to support Xcode 4.3+ without CLT.
     self["SDKROOT"] = sdk
     # Tell clang/gcc where system include's are:
@@ -132,7 +98,7 @@ module Stdenv
 
   # Some configure scripts won't find libxml2 without help
   def libxml2
-    if MacOS::CLT.installed?
+    if !MacOS.sdk_path_if_needed
       append "CPPFLAGS", "-I/usr/include/libxml2"
     else
       # Use the includes form the sdk

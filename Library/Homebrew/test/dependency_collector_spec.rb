@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require "dependency_collector"
 
 describe DependencyCollector do
@@ -9,10 +11,6 @@ describe DependencyCollector do
 
   def find_requirement(klass)
     subject.requirements.find { |req| req.is_a? klass }
-  end
-
-  after do
-    described_class.clear_cache
   end
 
   describe "#add" do
@@ -38,7 +36,7 @@ describe DependencyCollector do
     end
 
     specify "requirement tags" do
-      subject.add x11: "2.5.1"
+      subject.add :x11
       subject.add xcode: :build
       expect(find_requirement(X11Requirement).tags).to be_empty
       expect(find_requirement(XcodeRequirement)).to be_a_build_requirement
@@ -49,21 +47,9 @@ describe DependencyCollector do
       expect(find_requirement(X11Requirement).tags).to be_empty
     end
 
-    specify "x11 with (ignored) minimum version" do
-      subject.add x11: "2.5.1"
-      expect(find_requirement(X11Requirement).min_version.to_s).not_to eq("2.5.1")
-    end
-
     specify "x11 with tag" do
       subject.add x11: :optional
       expect(find_requirement(X11Requirement)).to be_optional
-    end
-
-    specify "x11 with (ignored) minimum version and tag" do
-      subject.add x11: ["2.5.1", :optional]
-      dep = find_requirement(X11Requirement)
-      expect(dep.min_version.to_s).not_to eq("2.5.1")
-      expect(dep).to be_optional
     end
 
     it "doesn't mutate the dependency spec" do
@@ -75,43 +61,43 @@ describe DependencyCollector do
 
     it "creates a resource dependency from a CVS URL" do
       resource = Resource.new
-      resource.url(":pserver:anonymous:@example.com:/cvsroot/foo/bar", using: :cvs)
+      resource.url(":pserver:anonymous:@brew.sh:/cvsroot/foo/bar", using: :cvs)
       expect(subject.add(resource)).to eq(Dependency.new("cvs", [:build]))
     end
 
     it "creates a resource dependency from a '.7z' URL" do
       resource = Resource.new
-      resource.url("http://example.com/foo.7z")
+      resource.url("https://brew.sh/foo.7z")
       expect(subject.add(resource)).to eq(Dependency.new("p7zip", [:build]))
     end
 
     it "creates a resource dependency from a '.gz' URL" do
       resource = Resource.new
-      resource.url("http://example.com/foo.tar.gz")
+      resource.url("https://brew.sh/foo.tar.gz")
       expect(subject.add(resource)).to be nil
     end
 
     it "creates a resource dependency from a '.lz' URL" do
       resource = Resource.new
-      resource.url("http://example.com/foo.lz")
+      resource.url("https://brew.sh/foo.lz")
       expect(subject.add(resource)).to eq(Dependency.new("lzip", [:build]))
     end
 
     it "creates a resource dependency from a '.lha' URL" do
       resource = Resource.new
-      resource.url("http://example.com/foo.lha")
+      resource.url("https://brew.sh/foo.lha")
       expect(subject.add(resource)).to eq(Dependency.new("lha", [:build]))
     end
 
     it "creates a resource dependency from a '.lzh' URL" do
       resource = Resource.new
-      resource.url("http://example.com/foo.lzh")
+      resource.url("https://brew.sh/foo.lzh")
       expect(subject.add(resource)).to eq(Dependency.new("lha", [:build]))
     end
 
     it "creates a resource dependency from a '.rar' URL" do
       resource = Resource.new
-      resource.url("http://example.com/foo.rar")
+      resource.url("https://brew.sh/foo.rar")
       expect(subject.add(resource)).to eq(Dependency.new("unrar", [:build]))
     end
 

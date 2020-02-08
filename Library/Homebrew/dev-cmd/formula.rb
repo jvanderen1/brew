@@ -1,19 +1,28 @@
-#:  * `formula` <formula>:
-#:    Display the path where <formula> is located.
+# frozen_string_literal: true
 
 require "formula"
-require "cli_parser"
+require "cli/parser"
 
 module Homebrew
   module_function
 
-  def formula
-    Homebrew::CLI::Parser.parse do
-      switch :debug
-      switch :verbose
-    end
+  def formula_args
+    Homebrew::CLI::Parser.new do
+      usage_banner <<~EOS
+        `formula` <formula>
 
-    raise FormulaUnspecifiedError if ARGV.named.empty?
-    ARGV.resolved_formulae.each { |f| puts f.path }
+        Display the path where <formula> is located.
+      EOS
+      switch :verbose
+      switch :debug
+    end
+  end
+
+  def formula
+    formula_args.parse
+
+    raise FormulaUnspecifiedError if Homebrew.args.named.blank?
+
+    Homebrew.args.resolved_formulae.each { |f| puts f.path }
   end
 end

@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require "resource"
 
 describe Resource do
@@ -36,7 +38,7 @@ describe Resource do
       expect(subject.download_strategy).to eq(GitDownloadStrategy)
     end
 
-    it "raises an error if the download strategy class is unkown" do
+    it "raises an error if the download strategy class is unknown" do
       expect { subject.url("foo", using: Class.new) }.to raise_error(TypeError)
     end
 
@@ -57,7 +59,7 @@ describe Resource do
     end
 
     it "can detect the version from a URL" do
-      subject.url("http://example.com/foo-1.0.tar.gz")
+      subject.url("https://brew.sh/foo-1.0.tar.gz")
       expect(subject.version).to eq(Version.parse("1.0"))
       expect(subject.version).to be_detected_from_url
     end
@@ -70,7 +72,7 @@ describe Resource do
     end
 
     it "can set the version from a tag" do
-      subject.url("http://example.com/foo-1.0.tar.gz", tag: "v1.0.2")
+      subject.url("https://brew.sh/foo-1.0.tar.gz", tag: "v1.0.2")
       expect(subject.version).to eq(Version.parse("1.0.2"))
       expect(subject.version).to be_detected_from_url
     end

@@ -8,15 +8,25 @@ if ! [[ -d "$PWD" ]]; then
 fi
 
 quiet_cd() {
-  cd "$@" >/dev/null
+  cd "$@" >/dev/null || return
 }
 
 symlink_target_directory() {
-  local target="$(readlink "$1")"
-  local target_dirname="$(dirname "$target")"
+  local target target_dirname
+  target="$(readlink "$1")"
+  target_dirname="$(dirname "$target")"
   local directory="$2"
   quiet_cd "$directory" && quiet_cd "$target_dirname" && pwd -P
 }
+
+# Enable and use default Bash builtins rather than user-defined functions
+builtin enable compgen unset
+for cmd in $(builtin compgen -A builtin)
+do
+  builtin unset -f $cmd
+  builtin enable $cmd
+done
+unset cmd
 
 BREW_FILE_DIRECTORY="$(quiet_cd "${0%/*}/" && pwd -P)"
 HOMEBREW_BREW_FILE="${BREW_FILE_DIRECTORY%/}/${0##*/}"
@@ -38,7 +48,7 @@ then
 fi
 
 # Try to find a /usr/local HOMEBREW_PREFIX where possible (for bottles)
-if [[ -L "/usr/local/bin/brew" ]]
+if [[ -L "/usr/local/bin/brew" && ! -L "$HOMEBREW_PREFIX/Cellar" ]]
 then
   USR_LOCAL_BREW_FILE_DIRECTORY="$(symlink_target_directory "/usr/local/bin/brew" "/usr/local/bin")"
   USR_LOCAL_HOMEBREW_REPOSITORY="${USR_LOCAL_BREW_FILE_DIRECTORY%/*}"
@@ -53,8 +63,7 @@ HOMEBREW_LIBRARY="$HOMEBREW_REPOSITORY/Library"
 # Whitelist and copy to HOMEBREW_* all variables previously mentioned in
 # manpage or used elsewhere by Homebrew.
 for VAR in AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY BINTRAY_USER BINTRAY_KEY \
-           BROWSER EDITOR GIT NO_COLOR PATH VISUAL \
-           GITHUB_USER GITHUB_PASSWORD GITHUB_TOKEN
+           BROWSER DISPLAY EDITOR GIT NO_COLOR PATH VISUAL
 do
   # Skip if variable value is empty.
   [[ -z "${!VAR}" ]] && continue
@@ -65,6 +74,13 @@ do
   export "$VAR_NEW"="${!VAR}"
 done
 
+# Set CI variable for GitHub Actions, Azure Pipelines, Jenkins
+# (Set by default on Circle and Travis CI)
+if [[ -n "$GITHUB_ACTIONS" || -n "$TF_BUILD" || -n "$JENKINS_HOME" ]]
+then
+  export CI="1"
+fi
+
 # test-bot does environment filtering itself
 if [[ -z "$HOMEBREW_NO_ENV_FILTERING" && "$1" != "test-bot" ]]
 then
@@ -72,7 +88,7 @@ then
 
   FILTERED_ENV=()
   # Filter all but the specific variables.
-  for VAR in HOME SHELL PATH TERM COLUMNS LOGNAME USER CI TRAVIS SSH_AUTH_SOCK SUDO_ASKPASS \
+  for VAR in HOME SHELL PATH TERM TERMINFO COLUMNS DISPLAY LOGNAME USER CI SSH_AUTH_SOCK SUDO_ASKPASS \
              http_proxy https_proxy ftp_proxy no_proxy all_proxy HTTPS_PROXY FTP_PROXY ALL_PROXY \
              "${!HOMEBREW_@}" "${!TRAVIS_@}"
   do
@@ -84,5 +100,7 @@ then
 
   exec /usr/bin/env -i "${FILTERED_ENV[@]}" /bin/bash "$HOMEBREW_LIBRARY/Homebrew/brew.sh" "$@"
 else
+  # Don't need shellcheck to follow this `source`.
+  # shellcheck disable=SC1090
   source "$HOMEBREW_LIBRARY/Homebrew/brew.sh"
 fi

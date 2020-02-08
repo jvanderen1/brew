@@ -1,8 +1,11 @@
+# frozen_string_literal: true
+
 # Cleans a newly installed keg.
 # By default:
-# * removes .la files
-# * removes perllocal.pod files
-# * removes .packlist files
+#
+# * removes `.la` files
+# * removes `perllocal.pod` files
+# * removes `.packlist` files
 # * removes empty directories
 # * sets permissions on executables
 # * removes unresolved symlinks
@@ -24,9 +27,7 @@ class Cleaner
 
     # Get rid of any info 'dir' files, so they don't conflict at the link stage
     info_dir_file = @f.info + "dir"
-    if info_dir_file.file? && !@f.skip_clean?(info_dir_file)
-      observe_file_removal info_dir_file
-    end
+    observe_file_removal info_dir_file if info_dir_file.file? && !@f.skip_clean?(info_dir_file)
 
     prune
   end
@@ -38,7 +39,7 @@ class Cleaner
   end
 
   # Removes any empty directories in the formula's prefix subtree
-  # Keeps any empty directions projected by skip_clean
+  # Keeps any empty directories protected by skip_clean
   # Removes any unresolved symlinks
   def prune
     dirs = []
@@ -57,7 +58,7 @@ class Cleaner
     # actual files gets removed correctly.
     dirs.reverse_each do |d|
       if d.children.empty?
-        puts "rmdir: #{d} (empty)" if ARGV.verbose?
+        puts "rmdir: #{d} (empty)" if Homebrew.args.verbose?
         d.rmdir
       end
     end
@@ -87,10 +88,12 @@ class Cleaner
 
       Find.prune if @f.skip_clean? path
 
-      next if path.symlink? || path.directory?
+      next if path.directory?
 
       if path.extname == ".la"
         path.unlink
+      elsif path.symlink?
+        # Skip it.
       elsif path.basename.to_s == "perllocal.pod"
         # Both this file & the .packlist one below are completely unnecessary
         # to package & causes pointless conflict with other formulae. They are
@@ -108,9 +111,7 @@ class Cleaner
         end
         if ARGV.debug?
           old_perms = path.stat.mode & 0777
-          if perms != old_perms
-            puts "Fixing #{path} permissions from #{old_perms.to_s(8)} to #{perms.to_s(8)}"
-          end
+          odebug "Fixing #{path} permissions from #{old_perms.to_s(8)} to #{perms.to_s(8)}" if perms != old_perms
         end
         path.chmod perms
       end

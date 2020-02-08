@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 module Superenv
   class << self
     undef bin
@@ -5,6 +7,7 @@ module Superenv
     # @private
     def bin
       return unless DevelopmentTools.installed?
+
       (HOMEBREW_SHIMS_PATH/"mac/super").realpath
     end
   end
@@ -21,13 +24,6 @@ module Superenv
 
   def homebrew_extra_paths
     paths = []
-    # On 10.9, there are shims for all tools in /usr/bin.
-    # On 10.7 and 10.8 we need to add these directories ourselves.
-    if MacOS::Xcode.without_clt? && MacOS.version <= "10.8"
-      paths << "#{MacOS::Xcode.prefix}/usr/bin"
-      paths << "#{MacOS::Xcode.toolchain_path}/usr/bin"
-    end
-
     paths << MacOS::X11.bin.to_s if x11?
     paths
   end
@@ -58,7 +54,7 @@ module Superenv
   def homebrew_extra_library_paths
     paths = []
     if compiler == :llvm_clang
-      if MacOS::CLT.installed?
+      if !MacOS.sdk_path_if_needed
         paths << "/usr/lib"
       else
         paths << "#{MacOS.sdk_path}/usr/lib"
@@ -93,16 +89,16 @@ module Superenv
   end
 
   def determine_cccfg
-    s = ""
+    s = +""
     # Fix issue with sed barfing on unicode characters on Mountain Lion
-    s << "s" if MacOS.version >= :mountain_lion
-    # Fix issue with >= 10.8 apr-1-config having broken paths
-    s << "a" if MacOS.version >= :mountain_lion
-    s
+    s << "s"
+    # Fix issue with >= Mountain Lion apr-1-config having broken paths
+    s << "a"
+    s.freeze
   end
 
   def effective_sysroot
-    MacOS.sdk_path.to_s if MacOS::Xcode.without_clt?
+    MacOS.sdk_path_if_needed&.to_s
   end
 
   def set_x11_env_if_installed
@@ -113,7 +109,6 @@ module Superenv
   def setup_build_environment(formula = nil)
     generic_setup_build_environment(formula)
     self["HOMEBREW_SDKROOT"] = effective_sysroot
-    self["SDKROOT"] = MacOS.sdk_path if MacOS::Xcode.without_clt?
 
     # Filter out symbols known not to be defined since GNU Autotools can't
     # reliably figure this out with Xcode 8 and above.
@@ -133,9 +128,9 @@ module Superenv
       ENV["ac_have_clock_syscall"] = "no"
     end
 
-    # On 10.9, the tools in /usr/bin proxy to the active developer directory.
+    # The tools in /usr/bin proxy to the active developer directory.
     # This means we can use them for any combination of CLT and Xcode.
-    self["HOMEBREW_PREFER_CLT_PROXIES"] = "1" if MacOS.version >= "10.9"
+    self["HOMEBREW_PREFER_CLT_PROXIES"] = "1"
   end
 
   def no_weak_imports

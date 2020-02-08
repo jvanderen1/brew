@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require "hardware"
 require "extend/ENV/shared"
 require "extend/ENV/std"
@@ -27,11 +29,16 @@ module EnvActivation
     replace(old_env)
   end
 
+  def sensitive?(key)
+    /(cookie|key|token|password)/i =~ key
+  end
+
+  def sensitive_environment
+    select { |key, _| sensitive?(key) }
+  end
+
   def clear_sensitive_environment!
-    each_key do |key|
-      next unless /(cookie|key|token|password)/i =~ key
-      delete key
-    end
+    each_key { |key| delete key if sensitive?(key) }
   end
 end
 
